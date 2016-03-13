@@ -1,0 +1,57 @@
+~~~ SO WHAT'S NACL? AN EXECUTABLE? A COMPILER?
+
+NaCl is more of an ecosystem. There are a bunch of small components which work
+together.
+
+Let's say you're a developer. You want to run your entire codebase (which,
+fortunately for this example, consists of the file "hello.c") through NaCl.
+
+1) Build your source code! Use the NaCl toolchain to build a "NaCl Executable",
+   or "nexe". It's an ELF file, but with some minor tweaks so it can be verified
+   as safe.
+
+SOURCE CODE                              COMPILED CODE
+hello.c     ---> [NaCl toolchain] --->   hello.nexe
+
+  NaCl Toolchain: NaCl provides some tools for compiling and linking your source code
+  into these safe binaries. This way, as a developer, you can automatically meet the
+  safety constraints if your code compiles. Think "nacl-clang", "nacl-ld", etc.
+
+2) Send your code to an end user!
+
+COMPILED CODE                            COMPILED CODE
+hello.nexe  ---> [The Internet]   --->   hello.nexe
+
+  Your executable shouldn't be changed by this step. One would hope.
+
+3) The end user verifies that the nexe can be run safely.
+
+COMPILED CODE                            COMPILED CODE
+hello.nexe  ---> [NaCl Validator] --->   hello.nexe
+
+  NaCl Validator: NaCl defines some rules for what it considers to be a 'safe' binary.
+  If a binary doesn't conform to these rules, it can't run.
+
+4) End user starts executing your code.
+
+COMPILED CODE                            EXECUTING CODE
+hello.nexe  ---> [NaCl loader]    --->   hello.nexe (executing)
+
+  Yeah, a custom NaCl loader is used to constrain this executable before it
+  even starts. If your '.text' segment is writable, and you can access it, that's not
+  very safe, is it? After this custom loader has finished starting the code,
+  all accesses to system resources are mediated by the NaCl runtime.
+
+  NaCl Runtime: We don't want untrusted binaries to have direct access to system calls.
+  This is how normal executables interact with the OS! Unconstrained access here
+  would be just as bad as running these binaries WITHOUT NaCl. Thus, a "service runtime"
+  exists, which lets controlled access to native system calls occur, in a safe way.
+
+~~~ JEEZ, GUY, YOU'VE SAID 'SAFE' A LOT. WHAT DO YOU MEAN WHEN YOU SAY THAT?
+
+
+
+
+
+
+
