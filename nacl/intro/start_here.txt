@@ -77,12 +77,12 @@ Oh. Yeah.
 
 ~~~ WHY NOT?
 
-Because NaCl doesn't need to run in a web browser. Yes, it's primary use case
+Because NaCl doesn't need to run in a web browser. Yes, its primary use case
 has been living inside Chrome, but if you're throwing around executables from
 the command line, you can also use NaCl to sandbox programs.
 
 ~~~ SO WHAT'S NACL? AN EXECUTABLE? A COMPILER?
 
-Err... NaCl is a few things. We'll get into the full details next time.
+Err... NaCl is a few things.
 
-TODO(smklein): Maybe drop a link here.
+We'll get to the full details [next time](okay_but_what_is_it.txt).

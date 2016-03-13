@@ -1,0 +1,82 @@
+(hey, buddy, read "start_here.txt" first if you're lost...)
+
+~~~ I WANT TO MAKE A SYSTEM CALL IN MY NACL CODE. HOW DOES THAT HAPPEN?
+
+The service runtime! Remember?
+
+~~~ WHAT IS THE SERVICE RUNTIME YOU MENTIONED?
+
+It is a collection of code and data segments, acting like an "interface" program,
+which lives alongside the untrusted code in a NaCl binary.
+
+Remember: the purpose of the service runtime is to allow access to system
+resources while not breaking any safety guarantees! Untrusted binaries can't
+even use the "syscall" instruction, so how can they communicate with the OS?
+Answer: by communicating with the service runtime, which would make the syscall
+(after being validated) on behalf of the untrusted binary.
+
+~~~ SO HOW IS MEMORY GOING TO BE LAID OUT? WON'T IT BE A PROBLEM THAT THE
+SERVICE RUNTIME LIVES IN THE SAME PROCESS AS UNTRUSTED CODE?
+
+Let me paint you a picture.
+
+         ... Continued untrusted NaCl code.
+  0x00010000 START of untrusted NaCl code
+  0x0000FFFF END of 60KB of trusted NaCl code
+         ...
+  0x00001000 START of 60 KB of trusted NaCl code
+         ...
+  0x00000FFF END of 4KB of NULL pointers
+         ...
+  0x00000000 START of 4KB of NULL pointers
+
+~~~ ISN'T IT A PROBLEM THAT THIS TRUSTED CODE LIVES RIGHT BELOW UNTRUSTED CODE?
+
+Nope! As I mentioned earlier, segmentation is used to prevent accessing untrusted
+memory, in addition to address and control flow validation.
+
+The %cs segment is set to constrain control transfers within the module text.
+The other segments control R/W data accesses to the untrusted address space.
+
+~~~ SO HOW CAN THE UNTRUSTED CODE USE THE SERVICE RUNTIME TO MAKE A SYSTEM CALL
+IF IT CAN'T JUST CALL IT, WRITE TO IT, OR READ IT?
+
+Code snippets called "trampolines" and "springboards" allow control transfer
+between untrusted and trusted code.
+
+This code uses "far call" instructions, which enable a call + segment
+modification, to make these control transfers. Recall that our validation and
+use of 'nacljmp' instructions lets every 0 mod 32 address be a potential control
+flow target, these are valid control flow targets for the untrusted code as well.
+
+A "trampoline" refers to a control transfer from untrusted to trusted code.
+It consists of a sequence which:
+  - Resets %ds.
+  - Uses a far call to reset %cs + jump to the trusted code.
+
+  Once the far call has completed, a "flat address" model is attained, which is
+  used in the service runtime.
+
+A "springboard" refers to a control transfer from trusted to untrusted code.
+It consistes of a sequence which:
+  - Resets the segment registers.
+  - Jumps into an aligned, untrusted address.
+
+~~~ SO THE UNTRUSTED CODE CAN'T WRITE TO THE TRUSTED CODE BECAUSE...
+
+Segmentation is used. This prevents access to these low addresses. This is
+enforced by the hardware's memory management system.
+
+~~~ RIGHT. BUT JUMPING TO THE TRUSTED CODE REQUIRES MODIFYING SEGMENTS, RIGHT?
+
+Yup! The segment registers get changed when using the far call instruction.
+
+~~~ ISN'T IT UNSAFE TO LET UNTRUSTED CODE CREATE FAR CALL INSTRUCTIONS?
+
+I agree! This is why the "untrusted code" which implements this trampoline
+is actually inserted by a trusted loader before the binary even begins to execute.
+
+The validated binary should not contain far call instructions, as they are in
+the group of disallowed instructions which modify segment registers.
+
+TODO(smklein): Conclusion?

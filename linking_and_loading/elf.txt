@@ -1,0 +1,161 @@
+~~~ WHAT'S ELF?
+
+"Executable and Linking Format" (ELF) is the format of a file commonly found
+on Linux (and Linux-like) operating systems. When Linux sees an ELF file,
+it knows how to link it with other ELF files or load it into memory and execute
+it.
+
+If you've compiled an object file, shared library, or executable with Linux,
+then there's a pretty good chance it was an ELF file.
+
+Noteably, Mac and Windows computers do not use ELF by default.
+Mac uses Mach-O binaries, and windows uses PE (Portable Executables).
+Additionally, ELF isn't the only Unix-based format: a.out and COFF have also
+been historically used.
+
+I may discuss those formats another day, but for now, let's focus on ELF.
+
+~~~ OKAY, WHAT DOES AN ELF FILE LOOK LIKE?
+
+Let's start off with a picture of the entire file, and then walk our way
+through it.
+
+Start of ELF file
+    ELF Header (ehdr)
+    Program header table (phdr)
+    Section 1 (ex, .text)
+    Section 2 (ex, .rodata)
+    Section 3 (ex, .data)
+    ...
+    Section N
+    Section header table (shdr)
+End of ELF file
+
+The next few questions will try to clarify this diagram.
+
+The TL;DR of this is:
+
+1) Elf Header (ehdr): Contains data describing the rest of the file, as well as
+what architecture the file should be run on / what the file should be used for.
+
+2) Program header table (phdr): Describes how the file should be used if you
+are trying to put it into memory (to load it as a shared library / executable).
+If you're linking the file, this table is ignored.
+
+3) Section header table (shdr): Describes all the sections of the file. This
+information is useful for re-linking ELF files, but completely ignored when
+actually loading the file. Actually resides at the end of the ELF file.
+
+4) Sections: The meat and potatoes of the file. The actual data of the file.
+This contains all the data necessary to either (a) relink the file with other
+files, or (b) execute the file. These sections are described by the phdr and
+the shdr.
+
+Let's walk through each of those four groups.
+
+~~~ WHAT IS THE ELF HEADER?
+
+The ELF header, sometimes abbreviated as "ehdr", consists of a bunch of
+metadata about the rest of the elf file.
+
+I'll list this data, but I recommend looking at the man pages for ELF if you're
+looking for specific info. I'm just trying to give an intuitive sense for
+what this header contains. Most of these fields are 16, 32 or 64 bit ints,
+but I'm glossing over those details (also, I left the boring fields blank and
+re-ordered some things for readability).
+
+e_ident     A magic number identifying the file as ELF32/64, the endianness,
+              and the "ABI" it's targeting (ex, Sys V, Linux, Solaris, etc).
+e_type      The object file type. Relocatable (.o file), executable, shared
+              object (.so), etc.
+e_machine   The architecture for this file (ex, x86, x86-64, ARM, etc).
+e_entry     Virtual address of starting "eip"/"pc". Zero if no entry point.
+e_phoff     The offset of the program header table (phdr), the size of
+e_phentsize   each entry, and the number of entries.
+e_phnum
+e_shoff     The offset of the section header table (shdr), the size of
+e_shentsize   each entry, and the number of entries.
+e_shnum
+e_flags
+e_ehsize    The size of the ELF header (not really needed...)
+e_shstrndx  The index into the shdr holding an entry associated with a string
+              table, which contains the names of the shdr entries.
+
+~~~ WHAT IS THE PROGRAM HEADER TABLE?
+
+The program header table (phdr) tells the system how to load the ELF file's
+sections into memory. It is an array of "phdr" entries. Some of the entries
+describe memory segments, others describe metadata used in a different way
+when loading the file.
+
+It's important to note: one "memory segment" can correspond with any number
+of "file sections". This is part of the reason why the phdr is separate
+from the shdr (see below for details on the section header table).
+
+p_type   Identifies what kind of segment this is. For example,
+           PT_LOAD: This entry is a loadable segment, and should be mmap-d
+             (or some equivalent) into memory.
+           PT_DYNAMIC: This entry describes info used for dynamic linking.
+           PT_INTERP: This element describes a string to be used as an
+             "interpeter" for this file. For example, dynamically linked
+             executables point to "ld.so", so their dependencies can be loaded
+             before execution starts.
+p_offset Offset from the start of the file at which the segment resides.
+p_vaddr  If this is a loadable segment, the virtual address at which this
+           segment should reside.
+p_paddr  Same as "vaddr" but, for physical addresses. Not usually used.
+p_filesz The number of bytes in the ELF file describing this segment.
+p_memsz  The number of bytes in memory describing the segment.
+           Not necessarily equal to filesz! For example, a .bss segment
+           will have a memsz > 0, but a filesz == 0.
+p_flags  Identifies if the segment is executable, writeable, or readable.
+p_align  The alignment of the vaddr.
+
+~~~ WHAT IS THE SECTION HEADER TABLE?
+
+The section header table (shdr) describes each section of the ELF file.
+The shdr doesn't care about how these sections would be used in memory,
+it just seeks to describe the sections themselves.
+
+sh_name       The name of the section (it's an index into the section header
+                string table section, which points to a string).
+sh_type       Describes what the section's contents are. For example,
+              SHT_PROGBITS: The section is defined by the progrma.
+              SHT_SYMTAB: This section holds a symbol table.
+              SHT_STRTAB: This section holds a string table.
+              SHT_REL: This section holds relocation entries, holding
+                addresses that need to be modified when linking.
+              SHT_HASH: This section holds a hash table to quickly look
+                up symbols in the symbol table.
+              SHT_DYNAMIC: This section hold info for dynamic linking.
+sh_flags      Holds info describing miscellaneous attributes (binary flags).
+sh_addr       If the section shows up in memory, holds the address of the section
+                in memory. Analogous to vaddr in the phdr.
+sh_offset     Offset from the beginning of the file that describes the section.
+sh_size       Size of the section.
+sh_link       "Info" for linker.
+sh_info       "Extra info".
+sh_addralign  Alignment requirement of section.
+sh_entsize    Some sections, like the symbol table, hold fixed-size entries.
+                "entsize" describes the size of one of these entries.
+
+~~~ WHAT ARE THE SECTIONS?
+
+Sections contain info describing the file.
+
+Here are some common sections, although there are infinitely many more
+possible:
+
+.text     The machine code of the compiled program.
+.rodata   Read-only data, such as strings and jump tables.
+.data     Initialized global variables.
+.bss      Uninitialized global variables (set to zero). Holds no space in obj
+            file.
+.symtab   A symbol table with information about functions / globals.
+.rel.text List of addresses in .text that need to be modified when linking.
+.rel.data List of addresses in .data that need to be modified when linking.
+.debug    A symbol table with information about local variables, included if
+            "-g" is passed to the compiler driver.
+.strtab   A string table for the symbol tables ".symtab" and ".debug".
+.dynamic  This section hold dynamic linking info.
+
