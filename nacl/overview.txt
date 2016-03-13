@@ -1,26 +1,28 @@
 ~~~ WHAT ON EARTH IS NATIVE CLIENT (ALSO KNOWN AS NACL)?
 
-This post attempts to describe NaCl from the perspective of the original
-NaCl paper, from 2009. It has since changed and expanded, both in terms of
-architectures supported, design, portability and use cases. However, the original
-idea behind sandboxing a native application using validation, restricted address space, and validation, largely stays the same.
+This post attempts to describe NaCl from the perspective of the original NaCl
+paper, from 2009. It has since changed and expanded, both in terms of
+architectures supported, design, portability and use cases. However, the
+original idea behind sandboxing a native application using validation,
+restricted address space, and validation, largely stays the same.
 
-That being said, I'm going to ignore those differences, and write about
-NaCl as if it's 2009. That should be the easiest to understand -- and I'll talk
-about updates in future posts.
+That being said, I'm going to ignore those differences, and write about NaCl as
+if it's 2009. That should be the easiest to understand -- and I'll talk about
+updates in future posts.
 
-Link to the original NaCl paper: http://research.google.com/pubs/archive/34913.pdf
+Link to the original NaCl paper:
+http://research.google.com/pubs/archive/34913.pdf
 
 ~~~ WHY WAS NACL MADE?
 
 Basically, the Internet. In 2009, if you wanted to do some computation in a web
 browser, your options included:
 
-  1) Javascript (which lacked compatibility with native code, as well as suffered
-in performance) or
+  1) Javascript (which lacked compatibility with native code, as well as
+suffered in performance) or
 
-  2) Extensions such as ActiveX and NPAPI. For those who don't know, ActiveX and
-NPAPI provide a mechanism to let native code ignore the security of the
+  2) Extensions such as ActiveX and NPAPI. For those who don't know, ActiveX
+and NPAPI provide a mechanism to let native code ignore the security of the
 browser, and run regardless, through a plugin.
 
 Yes, I'm doing some handwaving here, but that's the general idea.
@@ -47,34 +49,37 @@ instructions) execute safely.
 
 ~~~ WHAT'S A SANDBOX?
 
-"Sandboxing" and "sandboxes" basically are just an idea. It's the idea of letting a
-program have access to some controlled resources, without the ability to escape, mess
-with the host system, or interact with other programs.
+"Sandboxing" and "sandboxes" basically are just an idea. It's the idea of
+letting a program have access to some controlled resources, without the ability
+to escape, mess with the host system, or interact with other programs.
 
 Some people get confused by the term "sandbox" because they think sandboxes are
-specific programs that exist on the program. Some sort of "sandbox.out" executable.
+specific programs that exist on the program. Some sort of "sandbox.out"
+executable.
 
 Nope. A sandbox is an idea. Native Client is a "sandboxing" environment, since
 it wants to constrain untrusted code. Another example of a sandbox includes
 virtual machines -- VMs let programs execute, but access to the host resources
 are mediated by the VMM.
 
-That being said, if your sandbox lets untrusted code escape and manipulate resources
-on your host, then your sandbox sucks. It's really not doing much sandboxing at all.
+That being said, if your sandbox lets untrusted code escape and manipulate
+resources on your host, then your sandbox sucks. It's really not doing much
+sandboxing at all.
 
 ~~~ OH, OKAY. NEAT... WAIT.
 
 What?
 
-~~~ WHEN YOU DEFINED NATIVE CLIENT, YOU DIDN'T MENTION ANYTHING ABOUT A WEB BROWSER.
+~~~ WHEN YOU DEFINED NATIVE CLIENT, YOU DIDN'T MENTION ANYTHING ABOUT A WEB
+BROWSER.
 
 Oh. Yeah.
 
 ~~~ WHY NOT?
 
-Because NaCl doesn't need to run in a web browser. Yes, it's primary use case has been
-living inside Chrome, but if you're throwing around executables from the command line,
-you can also use NaCl to sandbox programs.
+Because NaCl doesn't need to run in a web browser. Yes, it's primary use case
+has been living inside Chrome, but if you're throwing around executables from
+the command line, you can also use NaCl to sandbox programs.
 
 ~~~ SO WHAT'S NACL? AN EXECUTABLE? A COMPILER?
 
