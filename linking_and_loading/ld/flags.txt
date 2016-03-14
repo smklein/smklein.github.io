@@ -1,0 +1,61 @@
+~~~ HOW DO I USE LD?
+
+"ld", or the system linker, takes a collection of archives and object files,
+mashes them together, and dumps out an output file. This output could be a
+dynamic library or an executable.
+
+~~~ WHAT DO YOU MEAN BY "MASHES THEM TOGETHER"?
+
+It relocates data and ties up symbol references. I'll get into the specific
+details of those steps later.
+
+For now, let's talk about the high-level command line tool.
+
+~~~ OKAY. WHAT FLAGS CAN WE PASS TO LD?
+
+Let's look at the example provided in the man pages.
+
+ld -o <output> <object files> -lc
+   ^^^^^^^^^^^
+   This part is pretty easy. What file are we creating?
+
+ld -o <output> <object files> -lc
+               ^^^^^^^^^^^^^^
+   This is the collection of input object files we're merging into a single
+   file. Technically, this could be a single object file.
+
+ld -o <output> <object files> -lc
+                              ^^^
+   This flag indicates that the archive "libc.a" will also be linked with the
+   input object files.
+
+~~~ HUH? HOW DOES "-lc" MEAN "libc.a"?
+
+Let's talk about the "-l" flag.
+
+ld is weird. It knows that you probably have some object files / archives in
+your system (take a moment, check out /usr/lib/, and you'll see what I mean).
+
+If you pass in object files from the command line, it assumes that you're
+referring to VERY SPECIFIC FILES by absolute / relative pathname.
+
+However, if you pass in object files via "-lNAME", then the linker looks for
+"libNAME.a" in a list of paths specified by "-Lpathname".
+
+To make things even MORE complicated, if you pass the argument in the form
+"-l:FILENAME", then ld looks for a file named "FILENAME", not "libFILENAME.a"
+
+The following command:
+  ld -o output input.o -lFOO -l:BAR -Lpath/name/a -Lpath/name/b
+
+Does the following:
+1) It uses "input.o" from PWD/input.o
+2) It searches in PWD/path/name/a and PWD/path/name/b for a library named
+   libFOO.a.
+3) It searches in PWD/path/name/a and PWD/path/name/b for a file named "BAR".
+
+
+TODO(smklein): discuss flags where order matters.
+
+
+

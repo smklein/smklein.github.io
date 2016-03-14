@@ -1,0 +1,62 @@
+~~~ WHAT IS PNACL?
+
+PNaCl, or "Portable Native Client", is a toolchain which attempts to create
+architecture independent code. It consists of a collection of tools (think
+"clang", "ld", etc) which compile source code to LLVM bitcode, and then runs
+LLVM passes to make the bitcode "portable". This bitcode is then sent to
+clients, where it can be translated on the fly for a variety of architectures.
+
+~~~ LLVM?
+
+Hopefully I'll dive into this topic in a different post. LLVM is a set of tools
+(compiler, linker, debugger) for building code. It has gotten very popular due
+to its ability to compile code into an "intermediate representation" (IR),
+where it can be manipulated (optimized, altered, whatever you want) before
+being interpreted / compiled.
+
+~~~ BITCODE?
+
+Bitcode is a dense, on-disk encoding of this IR.
+
+~~~ I'M CONFUSED. WHY SHOULD I CARE ABOUT PNACL?
+
+Well, let me draw a picture explaining how this works.
+
+This is how you're probably used to building your code:
+hello.c ---> [Compiler] ---> hello.out ---> Code runs!
+
+And this is how you might expect native code would work when shipping to clients:
+hello.c ---> [Compiler] ---> hello.out ---> [Internet] ---> Code runs!
+
+But here's the problem. Back in that [Compiler] stage, your toolchain made the
+decision to compile hello.c to the architecture of (probably) your current system.
+Let's say it's x86.
+
+hello.c ---> [Compiler] ---> hello.x86 ---> [Internet]
+        ---> Code runs on x86 machines!
+
+Okay, well, what if you have a client that wants to run ARM code?
+
+Your solution would need to involve re-compiling for each architecture,
+and manually providing links to each one that you support.
+
+This is possible, but forgetting about even one architecture leaves your
+userbase fragmented. Additionally, new architectures will force you to port
+your code and completely recompile all binaries.
+Lastly, if you ship a binary to user A, and that user wants to send the binary
+to user B (offline), then the architectures MUST match.
+
+~~~ HRM... OKAY, I SEE THE PROBLEM. HOW DOES PNACL SOLVE THIS?
+
+PNaCl breaks down the [Compiler] box into separate parts. One part turns the
+source code into a binary, the other lives with the client, and translates the
+portable code to a native format.
+
+hello.c ---> [Compiler Frontened] ---> hello.pexe ---> [Internet]
+        ---> [Compiler Backend (translator)] ---> Code runs (as a nexe)!
+
+(Side note, for anyone who knows more about PNaCl: the frontend will consist of
+something like "pnacl-clang", "pnacl-ld", "pnacl-opt", and "pnacl-finalize".
+The Backend will consist of either "pnacl-llc" or "Subzero")
+
+TODO(smklein): Explain what makes PNaCl more portable than LLVM bitcode (or what DID, at the time of the paper). Explain ILP32.

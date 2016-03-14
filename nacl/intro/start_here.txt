@@ -83,6 +83,6 @@ the command line, you can also use NaCl to sandbox programs.
 
 ~~~ SO WHAT'S NACL? AN EXECUTABLE? A COMPILER?
 
-Err... NaCl is a few things. We'll get into the full details next time.
+Err... NaCl is a few things.
 
-TODO(smklein): Maybe drop a link here.
+We'll get to the full details [next time](okay_but_what_is_it.txt).

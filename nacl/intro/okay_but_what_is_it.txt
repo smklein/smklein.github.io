@@ -1,3 +1,5 @@
+(psst... read "start_here.txt" first, if you haven't)
+
 ~~~ SO WHAT'S NACL? AN EXECUTABLE? A COMPILER?
 
 NaCl is more of an ecosystem. There are a bunch of small components which work
@@ -55,25 +57,36 @@ hello.nexe  ---> [NaCl loader]    --->   hello.nexe (executing)
 
 Hrm... that's a good point. I should clarify what that means.
 
-"Safe" from the perspective of the validator:
+"Safe" from the perspective of the validator / loader:
 - The binary will not be writeable after being loaded.
+  WHY: This seems obvious.
 - The binary is statically linked with a start address of zero, and .text
   starts at 64K.
+  WHY: This lets us insert trusted code in the bottom 64K.
 - All indirect control transfers use the 'nacljmp' instruction, which is a
-  combination of an 'and' and a 'jmp', forcing control flow to jumpt to 32-bit
+  combination of an 'and' and a 'jmp', forcing control flow to jump to 32-bit
   aligned addresses.
+  WHY: This preserves control flow integrity.
 - The binary is padded up to the nearest page with at least one 'hlt' instruction.
+  WHY: No code execution is allowed to lazily NOP its way out of control
 - The binary contains no instructions or pseudo-instructions overlapping a 32-byte
   boundary.
+  WHY: Control flow integrity! Targets jump to 32 byte boundaries, and are
+  contrained to them.
 - All valid instruction addresses are reachable by a all-through disassembly
   from the load address. The program may execute all of these reachable
   instruction blocks.
+  WHY: More CFI! This is more of a capability than a constraint, but whatever...
 - All direct control transfers target valid addresses.
+  WHY: CFI. You got it. No jumping out of our expected locations.
 - Self-modifying code is disallowed. Overlapping instructions are disallowed.
+  WHY: ... Once again, pretty obvious. This stuff is dangerous.
 - Executables may only include a subset of legal instructions. Disallowed instructions
   include syscall/int (syscalls must be made through the service runtime), instructions
   which modify segment state (lds, far calls, etc) and ret (returns are instead
   implemented with indirect jumps).
+  WHY: If a full set of x86 instructions were allowed, then jumping out of the
+  other contraints which have been set would be possible.
 
 "Safe" from the perspective of the runtime:
 - Programs may exercise the NaCl ABI to access the service runtime (they may
@@ -88,11 +101,17 @@ runtime.
 The original NaCl (x86 only) used segmented memory to constrain data and instruction
 references.
 
-Control flow integrity
+~~~ WHAT'S THIS CONTROL FLOW INTEGRITY YOU WON'T SHUT UP ABOUT?
+
+It answers the question "where is our code allowed to jump / fall through to"?
 
 For each direct branch, the target is statically computed, and confirmed to be valid.
 
-For each indirect branch, segmeneted memory is used. The CS segment constrains
+(If you don't know what a direct branch is, it refers to an instruction which
+hard-codes the address of memory. Think "jmp 0xFFFF0000". Indirect branches use
+either registers or memory locations holding the address to jump to.)
+
+For each indirect branch, segmented memory is used. The CS segment constrains
 executable text to a zero-based address range (of size N * 4K). Once the text
 segment is contrained by the hardware, a constant mask is used for all indirect
 jumps, by aligning each 'jmp' to 32 bytes. These aligned jumps are called
@@ -106,4 +125,10 @@ sequence (3 bytes for 'and', 2 bytes for 'jmp'), instead of the 14 byte version
 when segmentation is not used (6 byte 'and', 6 byte 'and', and a 2 byte
 'jump').
 
+~~~ AND HOW IS THIS ENFORCED?
 
+The validator checks the binary before loading it into memory.
+
+~~~ AH. BUT HOW CAN SYSTEM CALLS GET MADE WHEN EVERYTHING IS CONSTRAINED LIKE THIS?
+
+Read on in the follow-up [post](service_runtime.txt)!
