@@ -30,7 +30,9 @@ COMPILED CODE                            COMPILED CODE
 hello.nexe  ---> [NaCl Validator] --->   hello.nexe
 
   NaCl Validator: NaCl defines some rules for what it considers to be a 'safe' binary.
-  If a binary doesn't conform to these rules, it can't run.
+  A static analyzer is used to confirm these rule have been satisfied.  If a
+  binary doesn't conform to these rules, it can't run. Once again, 'hello.nexe'
+  shouldn't be changed by this step.
 
 4) End user starts executing your code.
 
@@ -45,13 +47,63 @@ hello.nexe  ---> [NaCl loader]    --->   hello.nexe (executing)
   NaCl Runtime: We don't want untrusted binaries to have direct access to system calls.
   This is how normal executables interact with the OS! Unconstrained access here
   would be just as bad as running these binaries WITHOUT NaCl. Thus, a "service runtime"
-  exists, which lets controlled access to native system calls occur, in a safe way.
+  exists, which lets controlled access to native system calls, in a safe way.
+
+  No pop-up boxes. No need to trust 'hello.nexe'. If it runs, it's safe.
 
 ~~~ JEEZ, GUY, YOU'VE SAID 'SAFE' A LOT. WHAT DO YOU MEAN WHEN YOU SAY THAT?
 
+Hrm... that's a good point. I should clarify what that means.
 
+"Safe" from the perspective of the validator:
+- The binary will not be writeable after being loaded.
+- The binary is statically linked with a start address of zero, and .text
+  starts at 64K.
+- All indirect control transfers use the 'nacljmp' instruction, which is a
+  combination of an 'and' and a 'jmp', forcing control flow to jumpt to 32-bit
+  aligned addresses.
+- The binary is padded up to the nearest page with at least one 'hlt' instruction.
+- The binary contains no instructions or pseudo-instructions overlapping a 32-byte
+  boundary.
+- All valid instruction addresses are reachable by a all-through disassembly
+  from the load address. The program may execute all of these reachable
+  instruction blocks.
+- All direct control transfers target valid addresses.
+- Self-modifying code is disallowed. Overlapping instructions are disallowed.
+- Executables may only include a subset of legal instructions. Disallowed instructions
+  include syscall/int (syscalls must be made through the service runtime), instructions
+  which modify segment state (lds, far calls, etc) and ret (returns are instead
+  implemented with indirect jumps).
 
+"Safe" from the perspective of the runtime:
+- Programs may exercise the NaCl ABI to access the service runtime (they may
+  pass invalid arguments if they want to).
+- Programs may allocate memory and spawn threads, up to a resource limit.
 
+~~~ SO HOW ARE THESE GUARANTEES MADE?
 
+Well, as I mentioned earlier, they are enforced by the validator and the service
+runtime.
+
+The original NaCl (x86 only) used segmented memory to constrain data and instruction
+references.
+
+Control flow integrity
+
+For each direct branch, the target is statically computed, and confirmed to be valid.
+
+For each indirect branch, segmeneted memory is used. The CS segment constrains
+executable text to a zero-based address range (of size N * 4K). Once the text
+segment is contrained by the hardware, a constant mask is used for all indirect
+jumps, by aligning each 'jmp' to 32 bytes. These aligned jumps are called
+'nacljmp', as mentioned earlier:
+
+and   %eax, 0xffffffe0
+jmp   *eax
+
+This manages to achieve control flow integrity with a 5 byte instruction
+sequence (3 bytes for 'and', 2 bytes for 'jmp'), instead of the 14 byte version
+when segmentation is not used (6 byte 'and', 6 byte 'and', and a 2 byte
+'jump').
 
 
