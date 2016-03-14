@@ -1,4 +1,8 @@
-TODO(smklein): Prereqs
+(hey, buddy, read "start_here.txt" first if you're lost...)
+
+~~~ I WANT TO MAKE A SYSTEM CALL IN MY NACL CODE. HOW DOES THAT HAPPEN?
+
+The service runtime! Remember?
 
 ~~~ WHAT IS THE SERVICE RUNTIME YOU MENTIONED?
 
