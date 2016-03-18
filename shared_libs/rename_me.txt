@@ -1,0 +1,29 @@
+
+https://www.akkadia.org/drepper/dsohowto.pdf
+
+~~~ WHAT'S A SHARED LIBRARY?
+
+When you execute a program, your OS and a "loader" take your compiled code and
+place it in memory.
+
+Typically, programs rely on a set of common functions, placed in "libraries".
+If you've ever called "printf", then you've used a library. If you've ever used
+"errno", then you've used a library.
+
+This means that when you start a program which uses libraries, your OS will
+carve out a space in memory for (a) your code, and (b) the libraries you depend
+on.
+
+People began to realize something -- there are tons of copies of these libraries
+in memory! If I have 100 programs depending on "printf", then I have 100 copies
+of "stdio" occupying RAM.
+
+~~~ THAT SUCKS. CAN'T THESE LIBRARIES BE SHARED?
+
+Yup. That's the whole reason shared libraries were originally created.
+
+
+
+
+
+
