@@ -1,0 +1,59 @@
+(Continued from "command_line_shared_libs")
+
+For Linux's dynamic linker, DT_NEEDED entries are used to generate the list of
+shared libraries where unresolved symbols might live.
+
+When looking for the definition of symbol, the dynamic linker iterates through
+these DT_NEEDED entries, looking for the address.
+
+~~~ OKAY. SO WHAT IF WE HAVE HUNDREDS OF SHARED LIBRARIES THAT WE DEPEND ON?
+WOULDN'T IT BE REALLY SLOW TO LOOK FOR A SINGLE SYMBOL IN HUNDREDS OF LIBRARIES?
+
+Then looking for a symbol means looking through hundreds of shared libraries.
+
+TODO(lazy loading of symbols?)
+
+~~~ WAIT A SECOND.
+
+Yeah?
+
+~~~ IF I TRIED COMPILING A BINARY USING A SHARED LIBRARY, I PASSED IN THE
+    "-l:shared.so" FLAG TO THE COMPILER DRIVER.
+
+Yup.
+
+~~~ AND WITHOUT THAT FLAG, THE LINKER THREW AN UNRESOLVED SYMBOL ERROR.
+
+Yup!
+
+~~~ THAT MEANS THAT WHEN WE INCLUDED "-l:shared.so", THE LINKER KNEW WHICH
+SHARED OBJECT THE SYMBOL LIVED IN!
+
+... and?
+
+~~~ IF WE KNEW WHERE THE SYMBOL WAS BEFORE, WHY DO WE NEED TO LOOK FOR IT AGAIN?
+
+Congratulations, you've just re-invented a concept called "direct binding".
+This is a feature of the linker on Solaris and OpenSolaris, where at link time,
+the linker makes new ELF section filled with pairs of "symbol : DT_NEEDED
+entry". This way, the dynamic linker can just directly look for the desired
+symbol in one ".so".
+
+~~~ OH. DOES DIRECT BINDING WORK ON LINUX TOO?
+
+TODO(-Bdirect ? I actually don't totally know)
+
+https://lwn.net/Articles/192624/
+
+Seems Ulrich didn't like it...
+
+https://sourceware.org/ml/binutils/2005-10/msg00437.html
+
+~~~ OH. WHY DOESN'T EVERYONE USE DIRECT BINDING? IT SEEMS GREAT.
+
+TODO( downside? )
+
+
+
+
+
