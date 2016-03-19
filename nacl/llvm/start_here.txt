@@ -1,1 +1,0 @@
-TODO(smklein): Explain LLVM IR.
