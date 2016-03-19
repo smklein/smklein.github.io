@@ -1,0 +1,82 @@
+~~~ SO HOW DO WE DYNAMICALLY LINK FROM THE COMMAND LINE?
+
+There are a couple different flavors of dynamic linking. One dynamically
+links at LOAD time, and the other dynamically links when DLOPEN is called.
+
+Today, I'll be focusing on the load-time version of dynamic linking.
+
+Suppose we have some files:
+
+  hello.c
+    #include <stdio.h>
+    #include "shared.h"
+    int main(void) { printf("Foo: %d\n", get_five()); return 0; }
+
+  shared.c
+    #include "shared.h"
+    int get_five() { return 5; }
+
+  shared.h
+    #ifndef SHARED_H_
+    #define SHARED_H_
+    int get_five();
+    #endif
+
+Then we can build these with:
+  $ clang -shared -fPIC -nostdlib shared.c -o shared.so
+          ^^^^^^^ This indicates that we want a shared object to be built.
+                  ^^^^^ Using position-independent code, so our ".so" can be
+                        loaded wherever the dynamic linker wants.
+                        ^^^^^^^^^ Don't link system startup libraries - they
+                        aren't needed, since we aren't calling main in
+                        shared.so.
+  $ clang hello.c -l:shared.so -o hello
+                  ^^^^^^^^^^^^ Check out my article about 'ld' flags
+                  to understand this. It basically just asks ld to accept
+                  symbols from shared.so, assuming that it will be available at
+                  runtime.
+  $ export LD_LIBRARY_PATH=.
+  $ ./hello
+
+We'll end up with two ELF objects "shared.so" and "hello".
+
+Using "nm -g shared.so", we can see all exported symbols from this shared
+library. In this list, we can see:
+
+  000000000000002e0 T get_five
+
+Hey! It's the definition of our function.
+
+~~~ COOL! BUT HOW DOES THE "hello" BINARY KNOW WHERE "get_five" IS?
+
+Good question, me! Think about this for a moment. It's sort of a bizzare
+situation -- yeah, we're dynamically linking get_five(), but before we even
+get into the nitty gritty details of "how exactly do we change our binary to
+point to the real get_five?", we need to know what shared object it lives in.
+
+Do we search every 'so' in our system? Ask the user for input? Or something
+else?
+
+For strong symbols, we'll need to keep a record of the fact that we depend
+on a library named "shared.so".
+
+If you run "readelf -d hello", meaning "please show me dynamic-linking related
+info for the hello binary", we can see the dynamic section.
+
+This includes the line:
+  0x0000000000000001 (NEEDED)       Shared library: [shared.so]
+
+Neat! So our dynamic linker, at runtime, will know to run off and look for
+undefined symbols in shared.so, thanks to this entry, known as a "DT_NEEDED"
+entry.
+
+For Linux's dynamic linker, DT_NEEDED entries are used to generate the list of
+shared libraries where unresolved symbols might live.
+
+~~~ OKAY. SO WHAT IF WE HAVE HUNDREDS OF SHARED LIBRARIES THAT WE DEPEND ON?
+WOULDN'T IT BE REALLY SLOW TO LOOK FOR A SINGLE SYMBOL IN HUNDREDS OF LIBRARIES?
+
+<<< See the "direct_binding" article for info on pairing symbol names with
+    DT_NEEDED entries. >>>
+
+TODO(good opportunity to talk about GNU_HASH at some point)
