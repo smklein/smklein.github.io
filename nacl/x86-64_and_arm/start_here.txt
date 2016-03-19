@@ -1,0 +1,161 @@
+(psst... if you haven't, read the intro series on NaCl. I assume you know
+about the x86 version if you're reading this)
+
+~~~ HEY, YOU MENTIONED THAT NACL USES SEGMENTED MEMORY TO SANDBOX CODE, RIGHT??
+
+Yeah.
+
+~~~ HOW IS THAT GOING TO WORK ON ARM AND X86-64?
+
+Good question. ARM32 and x86-64 do not have segmented memory.
+A new sandboxing scheme must be devised for these architectures.
+
+Recall some of the rules we defined for NaCl, originally:
+
+  - The code section is read-only and statically linked.
+  - The code section is divided into bundles of 32 bytes.
+  - All valid instructions are reachable by disassembly from a bundle
+    beginning.
+  - All indirect control flow instructions are replaced with 'nacljmp' to
+    ensure target address bundle-alignment.
+  - All direct control flow instructions are validated before executing.
+  - No instructions / pseudo-instructions may cross a bundle-boundary.
+
+Summarized, we have these unmodified kernels of 32-byte long code, which can
+only jump to each other, within the untrusted region. Everything stays pretty
+contained. These rules are checked by the NaCl validator, and they work in
+tandem with NaCl's trusted runtime (called 'service runtime').
+
+~~~ OKAY, THANKS FOR THE RECAP, I GUESS. SO HOW DOES IT WORK ON ARM?
+
+So what are we working with on ARM?
+
+Each instruction is 32-bits long, 16 registers are available, and it's a model
+RISC architecture. Condition codes can conditionally not execute many
+instructions, and a 16-bit "Thumb" extension can make code denser under certain
+circumstances. There's also a weird barrel shifter thing that I'm not going to
+get into right now.
+
+To simplify things, Thumb encodings are disallowed with NaCl.
+
+Memory is laid out as follows:
+
+   Top 3 GB: Trusted code
+Bottom 1 GB: Untrusted code
+
+NaCl's job is to disallow the bottom 1GB from jumping into / modifying the
+Trusted code, which preventing "forbidden instructions" from executing.
+
+Remember how bundles worked in x86?
+
+~~~ YEAH, YOU MENTIONED THEM IN THE RECAP. THE 32-BYTE KERNELS OF TEXT, RIGHT?
+
+Yeah. They're used in ARM too. Here, they're 16 bytes long instead.
+Since all our ARM instructions are 32 bits (4 bytes) long, we know that each
+bundle will hold four instructions.
+
+~~~ UM... SORRY, I GOT LOST, WHY DO WE WANT BUNDLES?
+
+These bundles are used for three primary reasons:
+  1) Preventing "pseudo-instructions" from being broken up.
+     Pseudo-instructions consist of multiple actual instructions, and these
+     instructions don't sandbox code unless they're all executed in order.
+     Think about something like "AND + JMP", to sandbox code. Executing just
+     the "JMP" is not sandboxed!
+  2) Prevending code from jumping into "trampoline" sequences.
+     There are special bits of code, inserted by the loader, which allow
+     transfers from the sewers of Untrusted code to the magical land of Trusted
+     code. These sequences must be laid out carefully, and like pseudo-instructions,
+     executed in a "execute-in-order-or-not-at-all" fashion.
+  3) [ARM SPECIFIC] ARM likes laying out rodata in the text segment. Why? I'm
+     not entirely clear. Perhaps performance? Needless to say, letting modifiable,
+     non-instruction chunks of text be executable is risky. Bundling and control
+     flow lets NaCl set the first 4 bytes of a data bundle to "bkpt 0x7777",
+     which aborts if executed and prevents the rodata from executing.
+
+~~~ OKAY, GOT IT. HOW ELSE DO WE SANDBOX, OTHER THAN BUNDLING?
+
+Well, for ARM, some opcodes let you change control flow by writing to r15,
+the ARM program counter (%eip equivalent). These instructions are disallowed
+by the NaCl validator.
+
+Instead, indirect control flow can be done by branching from a register.
+However, the jump must be limited to the bottom 1GB!
+
+~~~ ... WHY?
+
+Remember, we are constraining untrusted code to the bottom 1GB. The top 3GB is
+reserved for trusted code.
+
+There are two ARM instructions you need to be aware of for indirect jumps.
+
+1) Bit Clear, or 'bic'. This instruction will set certain bits of a register to
+   zero.
+
+   It acts like:
+    destination = source & (~Immediate)
+   It looks like:
+    bic [destination], [source], #Immediate
+2) Branch Exchange, or 'bx'. This just jumps to the address of a register.
+
+Thus, this pseudo-instruction implements indirect jumps:
+  bic r0, r0, #0xc000000f
+  bx r0
+
+~~~ WHAT'S THAT 0xC000000F DOING? WHAT'S THE REST OF THAT DOING?
+
+0xC000 000F
+  ^
+The top bits of this immediate force the jump to stay in the low 1GB.
+0xC is equal to binary 1100, and clearing this out eliminates the ability
+of the jump to access addresses in the 1GB - 4GB range.
+
+0xC000 000F
+          ^
+The bottom bits of this immediate force the jump to land at the start of a
+16 byte bundle.
+
+~~~ SO THIS COVERS INDIRECT JUMPS. DOES NACL CONSTRAIN RETURNING FROM FUNCTIONS?
+
+Yup, but it needs to do so differently.
+
+In x86, the 'ret' instruction is synonymous with "pop the return address off the
+stack and jump to it". In ARM, "pop {pc}" is often used instead. If an unaligned
+or untrusted address lives on the stack, this would escape the constrained
+memory region.
+
+Instead, pop {pc} is disallowed. The following pseudo-instruction is used instead:
+
+  pop { lr }
+  bic lr, lr, #0xc000000f
+  bx lr
+
+Allow this looks much longer, ARM hardware actually has a mechanism to
+expect the Link Register (lr) to be used this way -- it stays pretty fast.
+
+~~~ I THINK THAT COVERS CONTROL FLOW. HOW ABOUT DATA ACCESS?
+
+Well, I suppose it could be masked, a lot like the control flow addresses.
+However, it's interesting to realize: when constraining memory accesses, there
+are (at least) two options.
+1) Mask the address to force it in place.
+2) TEST the address, and only proceed if it is valid.
+
+For speed reasons, data accesses use the second option.
+
+In ARM, that looks like this:
+  tst r0, #0xc0000000
+  streq r1 [r0, #12]
+
+First, the 'Z' flag is set ONLY if r0 is outside the bottom 1GB.
+Secondly, the store only happens if the destination address is outside the
+expected range, and the 'Z' flag is set.
+
+~~~ AREN'T THER LIKE A TON OF ADDRESSING MODES?
+
+NaCl only validates two addressing modes:
+1) Access address at register + displacement (using test + store conditional).
+2) Access immediate address (checked before execution starts).
+
+Doing weird stuff like combining multiple register to form an address (in a
+single instruction) is forbidden.
