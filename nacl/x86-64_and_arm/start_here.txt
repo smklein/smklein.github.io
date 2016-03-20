@@ -1,6 +1,9 @@
 (psst... if you haven't, read the intro series on NaCl. I assume you know
 about the x86 version if you're reading this)
 
+TODO(smklein): Break this into ARM and x86-64 parts separately.
+TODO(smklein): Brainstorm an ARM64 model.
+
 ~~~ HEY, YOU MENTIONED THAT NACL USES SEGMENTED MEMORY TO SANDBOX CODE, RIGHT??
 
 Yeah.
@@ -36,7 +39,8 @@ instructions, and a 16-bit "Thumb" extension can make code denser under certain
 circumstances. There's also a weird barrel shifter thing that I'm not going to
 get into right now.
 
-To simplify things, Thumb encodings are disallowed with NaCl.
+To simplify things, Thumb encodings are disallowed with NaCl. This means we can
+consider a pure, 32-bit long instruction set.
 
 Memory is laid out as follows:
 
@@ -102,11 +106,11 @@ Thus, this pseudo-instruction implements indirect jumps:
   bic r0, r0, #0xc000000f
   bx r0
 
-~~~ WHAT'S THAT 0xC000000F DOING? WHAT'S THE REST OF THAT DOING?
+~~~ WHAT'S THAT 0xC000000F DOING? WHAT'S THE REST OF THE JUMP DOING?
 
 0xC000 000F
   ^
-The top bits of this immediate force the jump to stay in the low 1GB.
+Clearing the top bits of this immediate forces the jump to stay in the low 1GB.
 0xC is equal to binary 1100, and clearing this out eliminates the ability
 of the jump to access addresses in the 1GB - 4GB range.
 
@@ -138,7 +142,7 @@ expect the Link Register (lr) to be used this way -- it stays pretty fast.
 Well, I suppose it could be masked, a lot like the control flow addresses.
 However, it's interesting to realize: when constraining memory accesses, there
 are (at least) two options.
-1) Mask the address to force it in place.
+1) Mask the address to force it in place (by setting or clearing bits).
 2) TEST the address, and only proceed if it is valid.
 
 For speed reasons, data accesses use the second option.
@@ -151,11 +155,192 @@ First, the 'Z' flag is set ONLY if r0 is outside the bottom 1GB.
 Secondly, the store only happens if the destination address is outside the
 expected range, and the 'Z' flag is set.
 
-~~~ AREN'T THER LIKE A TON OF ADDRESSING MODES?
+For streq, "r1" is the src, and r0 + 12 is the destination. The "#12" is called
+a "flexible offset" in ARM, and it acts as a small immediate displacment for a
+value in an ARM instruction.
+
+~~~ AREN'T THERE A BUNCH OF ADDRESSING MODES IN ARM?
 
 NaCl only validates two addressing modes:
 1) Access address at register + displacement (using test + store conditional).
 2) Access immediate address (checked before execution starts).
 
-Doing weird stuff like combining multiple register to form an address (in a
+Doing weird stuff like combining multiple registers to form an address (in a
 single instruction) is forbidden.
+
+~~~ SO LET ME GET THIS STRAIGHT. "r0" WAS MASKED UP ABOVE, SO WE CAN ONLY WRITE
+TO DESTINATIONS IN THE UNTRUSTED CODE.
+
+Yup.
+
+~~~ BUT THEN "12" WAS ADDED TO "r0", AND WE WROTE THERE INSTEAD. DOESN'T THAT
+    MEAN WE COULD WRITE TO THE EDGE OF UNTRUSTED CODE, AND GET OUT WITH AN OFFSET?
+
+Yeah, technically that's true.
+
+The immediate displacement offsets are only allowed to be +/- 4095 bytes, at
+most, so guard pages can be used at either range of the data region to prevent
+these unwanted accesses.
+
+~~~ TO RECAP -- MASKS ARE USED FOR JUMPS, AND TESTS ARE USED FOR DATA ACCESSES.
+    FOR DATA ACCESSES, WON'T THAT BE REALLY SLOW?
+
+Well, it certainly won't make the code any faster.
+
+Let's try to optimize this a little bit. Can you think of any region of data
+that will be accessed a LOT when the code is executing? We could try to set up
+some alternative scheme for guarding data access there.
+
+~~~ HRM... HOW ABOUT THE STACK?
+
+Bingo! Writing through the stack pointer is an extremely common operation in
+ARM. If we can make that as fast as non-NaCl code, we're in good shape.
+
+Okay, so the whole point of doing "test" before storing to any destination is
+to verify that we're writing to a valid (in the untrusted region) address.
+
+What if we knew the stack pointer register (SP) was valid before our code
+started executing, and we could only change it with operations that would
+leave it valid?
+
+~~~ THEN IT WOULDN'T BE NECESSARY TO TEST ANY DESTINATIONS ADDRESSES BASED ON
+    THE STACK POINTER REGISTER. WE WOULD ALWAYS KNOW IT'S VALID.
+
+Yup. In the ARM32 instruction set, there are two types of instructions that can
+modify SP.
+
+1) Instructions that modify SP as a side-effect, like "push" or "pop".
+   These only modify SP in small increments, and will be caught by the guard
+   pages on the edges of the untrusted region if the SP becomes invalid.
+   ("caught" --> will cause a fault)
+2) Instructions that modify SP directly. These instructions are fully sandboxed
+   using the "bic" instruction. For example,
+
+   mov SP, r1               # Store r1 in SP.
+   bic SP, SP, #c0000000    # Clear the top two bits, limiting SP to bottom 1GB.
+
+Now, if the code wants to access memory as an offset from SP, NaCl lets it do
+so without worrying, because SP will be valid, and SP + offset will also be
+sandboxed (or it will hit a guard page).
+
+~~~ SO WHERE ARE THESE RULES ENFORCED?
+
+Well, technically NaCl only checks for all these rules in the validator.
+
+That being said, it's pretty unlikely (read: damn near impossible) that your
+vanilla compiler will dump out code that abides by these rules. In the
+NaCl toolchain specifically, which compiles code to LLVM, these rules are
+used when going from "LLVM bitcode" --> "ARM assembly" in a modified version
+of "LLC", or LLVM's code generator.
+
+If you're familiar with PNaCl, this code generation is done by the translator,
+which will either be "pnacl-llc" or "subzero".
+
+-------------------------------------------------------------------------------
+
+~~~ ALRIGHT, I THINK I GET HOW THE ARM IMPLEMENTATION WILL WORK.
+    HOW ABOUT x86-64?
+
+Let's familiarize ourselves with the differences between x86 and x86-64,
+really quickly (or at least the biggest differences).
+
+1) We have more address space (32 bits --> 64 bits).
+2) There are more registers (r8 through r15)
+3) Registers are longer. "eax" refers to bottom 32 bits, "rax" refers to 64 bits.
+4) There are no longer segmentation registers.
+
+~~~ HOW DOES THE x86-64 SANDBOX COMPARE TO ARM?
+
+It actually has a similar design, but with a different implementation.
+
+The ARM sandbox is zero-based (meaning the untrusted region starts at address zero), but thanks to some Windows-specific reasons, this is not possible with x86-64.
+
+Recall, ARM was able to just mask out the top bits of addresses when accessing
+memory (or just test against those top bits, in the case of memory stores).
+Doing so on x86-64 won't be so easy -- instead, a register known as
+"RZP" (which is currently r15) is used as a "base register". Instead of the
+untrusted region starting at zero, it starts at "RZP", where RZP is aligned
+to 4GB.
+
+~~~ SO WHEN EXACTLY DO WE USE RZP?
+
+Any time we want to access memory, we do so as an offset from RZP.
+RZP is also considered "read-only" -- instructions which can modify it
+are banned.
+
+As long as all offsets from RZP are in the untrusted region, our code is
+sandboxed.
+
+~~~ OKAY, SO WHAT DO THESE INSTRUCTIONS USING RZP OFFSETS LOOK LIKE?
+
+This is an x86-64 mov instruction (the one with the largest possible offset):
+  mov src, disp32(%RZP, %rcx, scale)        (the use of %rcx is arbitrary)
+
+It calculcates an address of the form:
+  destination = disp32 + %RZP + %rcx * scale
+
+How far from %RZP could this instruction reach? Well, if we let %rcx stay 64
+bits long, this destination could access our ENTIRE ADDRESS SPACE.
+
+~~~ THAT SEEMS COMPLETELY UNSANDBOXED.
+
+Yeah, thanks to that dang %rcx register. How about we cap it to 32 bits?
+Any instruction which operates on %ecx will clear the top 32 bits of %rcx, and
+make it act like a 32 bit register (this is a bit of an optimization. Really,
+we could just do "%rcx = %rcx & 0x00000000FFFFFFFF" before each mov, but this
+lets us slip in other desirable instructions instead).
+
+Now each mov effectively has the form:
+  destination = disp32 + %RZP + %ecx * scale
+Which will be at most
+  destination = 4GB    + %RZP + 4GB * 8
+Or
+  destination = %RZP +/- 36 GB
+
+~~~ TO CLARIFY, EVERY MEMORY ACCESS IS AN OFFSET FROM RZP.
+
+Yeah.
+
+~~~ AND EACH OFFSET CAN BE 36 GB ABOVE OR BELOW RZP.
+
+Yeah.
+
+~~~ WOW THAT SEEMS LIKE A LOT OF SPACE THAT CAN BE ACCESSED BY UNTRUSTED CODE!
+
+This is true. Remember, however, that we have a 64 bit address space! That's
+enormous!
+
+Let's say we want to give a NaCl application 4GB of untrusted memory.
+This memory is in the range of %RZP --> %RZP + 4GB.
+
+However, even if we force all memory accesses to be offsets from %RZP,
+the untrusted code can write in the range of %RZP - 36 GB to %RZP + 36 GB.
+
+~~~ SO HOW DO WE PREVENT THE APPLICATION FROM ACCESSING MEMORY OUTSIDE OF THE
+    4GB WE'RE GIVING IT?
+
+Large sections of unmapped pages. 40 GB above, and 40 GB below.
+By using unmapped pages, the underlying OS can cause a fault on any memory
+access to this banned 40GB region, and no additional RAM will be sacrificed
+actually providing this region.
+
+(Authors note: This seems like more unmapped memory than actually needed. However,
+ since it's unmapped virtual memory, it really doesn't cause any RAM pressure to take more.)
+
+~~~ WHAT ABOUT THE STACK POINTER? DIDN'T WE DO EXTRA SETUP TO CAUSE SP TO
+    ALWAYS BE VALID ON ARM, SO WE COULD AVOID MASKING?
+
+Yeah, and on x86-64, we actually have TWO registers that we keep valid:
+%rsp and %rbp.
+
+We set up some rules:
+  1) %rsp and %rbp can be exchanged with each other without bounds checking.
+  2) push, pop, and near calls do not require checks (since they cause a small
+     incremental change, immediately followed by a memory access, and would
+     fail if they hit the guard pages).
+  3) Any other modifications to %rsp / %rbp require a psudo instruction
+     ensuring that the register is in the range of %RZP --> %RZP + 4GB.
+
+
+
+
