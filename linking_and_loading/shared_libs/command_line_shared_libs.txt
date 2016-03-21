@@ -49,7 +49,7 @@ Hey! It's the definition of our function.
 
 ~~~ COOL! BUT HOW DOES THE "hello" BINARY KNOW WHERE "get_five" IS?
 
-Good question, me! Think about this for a moment. It's sort of a bizzare
+Good question, me! Think about this for a moment. It's sort of a bizarre
 situation -- yeah, we're dynamically linking get_five(), but before we even
 get into the nitty gritty details of "how exactly do we change our binary to
 point to the real get_five?", we need to know what shared object it lives in.

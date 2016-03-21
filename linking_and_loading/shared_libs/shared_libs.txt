@@ -1,0 +1,345 @@
+This article is strongly inspired by Ulrich Drepper's shared library
+manifesto, "How to Write Shared Librares". Please refer to it for a significantly
+more technical, in-depth approach:
+  https://www.akkadia.org/drepper/dsohowto.pdf
+
+~~~ WHAT'S A LIBRARY?
+
+When you execute a program, your OS and a "loader" take your compiled code and
+place it in memory.
+
+Typically, programs rely on a set of common functions, placed in "libraries".
+If you've ever called "printf", then you've used a library. If you've ever used
+"errno", then you've used a library.
+
+This means that when you start a program which uses libraries, your OS will
+carve out a space in memory for (a) your code, and (b) the libraries you depend
+on.
+
+~~~ SO FOR EVERY PROGRAM WHERE I CALL PRINTF, I'M PULLING IN THE STDIO LIBRARY?
+
+Yup. People began to realize something -- there are tons of copies of these
+libraries in memory! If I have 100 programs depending on "printf", then I have
+100 copies of "stdio" occupying RAM.
+
+~~~ THAT SUCKS. CAN'T THESE LIBRARIES BE SHARED?
+
+Yup. That's the whole reason shared libraries were originally created.
+
+Historically, Linux started using a format called "a.out". This format
+didn't use any "relocations", unlike modern ELF files.
+
+~~~ WHAT'S A RELOCATION?
+
+It refers to the modification of an address within the code by the loader.
+If I have code that calls "printf", and "printf" is unavailable at compile time,
+what address should that call jump to? A "relocation" means that the address
+placed at compile time will be updated by the loader at runtime.
+
+However, in ye olde binary formats, relocations weren't used. Instead, each
+shared library had to reserve a section of the address space for itself, before
+execution even begins. This results in many incompatible libraries for totally
+abitrary reasons.
+
+~~~ SO THIS PROBLEM OF INCOMPATIBLE LIBRARIES IS CAUSED BY REFERENCING AN
+    ABSOLUTE ADDRESS IN A SHARED LIBRARY, RIGHT?
+
+Yeah.
+
+~~~ SO DOES ELF REMOVE THESE REFERENCES TO ABSOLUTE ADDRESSES?
+
+Yup. The ELF shared libraries, called "DSOs" (built with the "-shared" flag from
+ld) don't demand to be loaded at a specific address. They can be loaded
+anywhere (assuming they are aligned properly).
+
+~~~ WHAT EXTRA WORK NEEDS TO BE DONE TO RUN A DYNAMICALLY LINKED APPLICATION?
+
+Well, dynamically linked binaries cannot simply be placed at an address
+and executed, like statically linked binaries. Extra work must be done to
+1) Find all DSOs that the dynamically linked application depends on, and
+2) Perform all relocations to addresses of symbols in the DSOs.
+
+~~~ IS THAT SLOW?
+
+That depends. Loading DSOs isn't very slow, but relocating symbols can take
+a while. ELF has some clever tricks, namely "lazy relocation", to avoid
+doing symbol relocations until as late as possible. We'll get into that later.
+Basically, it means that pointers to symbols in dynamically linked libraries
+point to stubs instead, and on the first call, the stub does all the dirty
+work of finding the real symbol location and accessing it.
+
+~~~ OKAY. LET'S DISCUSS WHAT HAPPENS WHEN WE LOAD A DYNAMICALLY LINKED APP.
+
+First, we should understand two things:
+1) The ELF format.
+2) How to load a statically linked app (for comparison)
+
+My article "elf.txt" (and many other sources) describes ELF.
+
+As for statically linked applications, they're fairly straightforward.
+The "execve" system call reads an ELF file, walks through the program
+header table loading all PT_LOAD memory segments, and jumps to the entry
+point.
+
+~~~ HOW DOES LOADING DYNAMICALLY LINKED APPLICATIONS DIFFER FROM STATIC ONES?
+
+It starts off pretty similar. The ELF file is parsed, and the PT_LOAD segments
+are placed in memory. However, we aren't ready to jump to the entry point.
+
+~~~ WHY NOT?
+
+Well, there are a few issues. Primarily, the dependencies of the application
+(any libraries it wants to use) must be loaded into memory, and the application
+and its dependencies must be relocated to point to each other.
+
+~~~ ARE THESE ISSUED RESOLVED IN THE KERNEL WHEN EXEC IS CALLED?
+
+Actually, no. The dynamically linked application's ELF file contains a
+program header table, which contains an entry with the tag PT_INTERP.
+This tag refers to the program interpreter -- though this is NULL for
+statically linked applications (I think? It's effectively NULL), it contains
+the name of a user-space program called a "dynamic linker" in this case.
+This linker (often referred to as "ld.so") is a position-independent shared
+library itself.
+
+Instead of jumping to the incomplete application, the kernel loads "ld.so" into
+memory and jumps there.
+
+~~~ HOW DOES THE DYNAMIC LINKER KNOW WHERE THE APPLICATION MEMORY IS?
+
+The kernel passes this information in the "auxiliary vector", along with
+additional info required for linking.
+
+~~~ OKAY. SO THE KERNEL LOADS THE APP, THEN "ld.so", THEN JUMPS TO "ld.so".
+    WHAT NEXT?
+
+"ld.so" is responsible for loading dependencies, relocating everything,
+and initializing the application and dependencies.
+
+The rest of this article will focus primarily on relocation.
+
+~~~ WHAT TYPES OF RELOCATIONS ARE THERE?
+
+There are "relative relocations", which are dependencies to locations within an
+object. These are easy, because they are self-contained within an object.
+Generally, these relocations consist of finding the address to be relocated,
+and addding the load time address of the object containing that relocation.
+
+Additionally, there are "symbol relocations", which generally occur when the
+reference and definition are in separate objects. These are harder.
+
+Symbol relocations are typically the bulk of the cost of dynamic loading.
+As a consequence, there are mechanisms in place to delay relocating symbols
+until they are actually used. However, this is merely an optimization --
+the work needs to get done at some point or another.
+
+For now, we'll consider relocations as if the environment variable
+"LD_BIND_NOW" was set, indicating that there should be no lazy relocations.
+
+~~~ OKAY, SO HOW DOES A SYMBOL RELOCATION WORK?
+
+For each relocation, the dynamic linker needs to look at the other loaded
+libraries and determine (1) if the symbol the relocation exists, and (2) what
+its address is, if it does exist. Technically, it only looks at a subset of the
+other loaded libraries (see: "lookup scope"), but we'll get into that later.
+
+Since a relocation can only point to a function or global variable in a shared
+library, the dynamic linker could just walk through every object's symbol
+table, but this would be extremely slow. Instead, hash tables (making
+maps of "symbol names" to "definitions") are used.
+
+  TODO(smklein): Discuss the format of these hash tables in a separate article.
+
+I'll dive into the gritty details of these hash tables in another article.
+There are different versions of the hash table (ELF vs GNU), with different
+tradeoffs and optimzations, but the important takeaways are:
+1) It's faster than walking through an array, and
+2) It allows multiple definitions of a single symbol. If DSO "A" and DSO "B"
+   both define a function, and the "first DSO loaded" will "win", and their
+   version of the function will be used. This is a source of interface
+   specialization (and also hellish bugs).
+
+~~~ CAN WE TALK ABOUT LOOKUP SCOPE? WHAT THE HECK IS THAT?
+
+Sure.
+
+"Lookup Scope" refers to a list containing a subset of the loaded objects
+in a particular order. It is referred to when "looking up" a symbol.
+
+The easiest model for a lookup scope would be this: disallow duplicate
+symbols when loading, and have the lookup scope include all loaded objects.
+That way, the order wouldn't matter.
+
+As it happens, most dynamic linkers don't play by those rules.
+Instead, the lookup scope is broken up into a couple of components.
+
+First, the "global lookup scope". This refers to the initially loaded
+executable, and all its dependencies added in breadth-first order.
+
+If my executable, "app", depends on "libone.so" and "libtwo.so", and both
+of those libraries depend on "libc.so", then the "global lookup scope" will
+consist of:
+
+1) app
+2) libone.so, then libtwo.so
+3) libc.so (and any other libraries libone.so depends on, then the libraries
+   that libtwo.so depends on).
+4) The dependencies of libc.so, etc.
+
+So the list is [app, libone.so, libtwo.so, libc.so, ...]
+
+Notice the breadth-first order? This defines how we'll look up symbols later.
+Note, if a library appears multiple times (like libc.so usually does), then it
+only included once, in the first location, in the list.
+
+This describes the case of defining lookup scope following an executable.
+If DSOs are loaded at runtime with "dlopen", things get more complicated.
+
+"dlopen"-ed DSOs also have dependencies. However, for "normal lookups", the
+entire chain of "dlopen"-ed DSO + dependencies is ignored. The only time
+symbol lookups refer to these libraries is if the reference came from the
+chain of "dlopen"-ed DSO + dependencies itself. For this reason, this
+group is referred to as having a "local lookup scope".
+
+As a rule of thumb, the global lookup scope is searched before the local lookup
+scope when the dynamic linker is trying to find a symbol.
+
+There are exceptions to these rules. For example, if the "RTLD_GLOBAL" flag is
+passed to "dlopen", then the loaded object and dependencies ARE added to the
+global lookup scope. Additionally, the flag "RTLD_DEEPBIND" can be used to
+prioritize local lookup scope over global lookup scope in certain situations.
+
+I recommend against using these flags except in the most dire circumstances,
+where you are 100% sure there are no other options.
+
+~~~ OKAY. HEY, I'M KINDA CONFUSED ABOUT RELOCATIONS.
+
+What's up?
+
+~~~ WELL, YOU'VE DESCRIBED A FEW WAYS TO "LOOK UP" SYMBOLS, USING HASH TABLES
+    ON OBJECTS IN A PARTICULAR ORDER, BUT YOU NEVER DESCRIBED WHAT WE DO
+    ONCE A SYMBOL IS FOUND. OR, EVEN, WHEN WE WOULD HAVE A RELOCATION IN THE
+    FIRST PLACE.
+
+Well, let's look at an example.
+
+    extern int foo;
+    int get_two_foo() {
+        return foo + foo;
+    }
+
+In this code, we have a variable, "foo", which is defined in a shared library
+available at runtime.
+
+What if "foo" was a normal local? "get_foo" would look like this in assembly:
+(I'm assuming really poorly optimized code to prove a point. Bear with me)
+    movl foo, eax
+    addl foo, eax
+    ret
+
+~~~ BUT FOR AN EXTERN "foo", WE DON'T HAVE THAT ADDRESS.
+
+Yeah. So, we could potentially use the same code, but relocate "foo"
+each time it is used.
+    movl foo, eax   # Dynamic linker would relocate "foo" here.
+    addl foo, eax   # And also here.
+    ret
+
+But this is problematic for two major reasons.
+
+1) This means that the dynamic linker will be writing to the ".text" segment,
+   so it will be "writeable + executable". This poses SERIOUS security risks.
+2) The dynamic linker will need to relocate each symbol USE, not just each
+   symbol. In this example, "foo" was used twice -- it could have been
+   used thousands of times! This would significantly burden the dynamic linker.
+
+So here's our problem.
+We WANT to turn this:
+    [.text segment]      [shared library not loaded]
+    Usage of "foo"  -->  ???
+Into this:
+    [.text segment]      [.data segment of shared library]
+    Usage of "foo"  -->  Definition of "foo".
+
+But we can't modify the "-->", because that would involve changing the ".text"
+section for each usage.
+
+Instead, we add a layer of indirection, and call something called the
+"Global Offset Table" (or GOT, for short).
+With the GOT, we turn this:
+    [.text segment]      [.got segment]           [shared library not loaded]
+    Usage of "foo"  -->  GOT entry for "foo". --> ???
+Into this:
+    [.text segment]      [.got segment]           [.data segment of shared lib]
+    Usage of "foo"  -->  GOT entry for "foo". --> Definition of "foo".
+
+We can make the ".text" segment point to these GOT entries at link time, since
+the location of the GOT relative to the PIC register is known at link time.
+Additionally, we know how many GOT entries we need -- the number of symbols
+the object is importing (NOT the number of uses).
+
+~~~ SO THAT COVERS GLOBAL VARIABLES. DO FUNCTION RELOCATIONS WORK THE SAME WAY?
+
+Not exactly, but it's pretty similar. Function calls use another table (like
+the GOT) called the "Procedure Linkage Table" (PLT). However, instead of
+just holding a dummy pointer, the PLT actually contains a valid function.
+
+Let's look at an example PLT:
+
+.PLT0: pushl 4(%ebx)
+       jmp *8(%ebx)
+       nop; nop
+.PLT1: jmp *name1@GOT(%ebx)
+       pushl $offset1
+       jmp .PLT0@PC
+.PLT2: jmp *name2@GOT(%ebx)
+       pushl $offset2
+       jmp .PLT0@PC
+(more entries like PLT1 and PLT2)
+
+So let's say we have an externally defined function "get_bar". Like the GOT
+variables, the usage of "get_bar" will be set by the compiler / linker to point
+to a PLT entry. Let's say, totally arbitrarily, that "get_bar" points to PLT2.
+
+So, "get_bar" is called. What happens?
+The code jumps to PLT2. The first instruction is "jmp *name2@GOT(%ebx)".
+Okay, so this identifies that "get_bar" jumps to an address that will
+always jump into the address specified by the GOT at the same index.
+
+~~~ BUT WHAT'S IN THIS GOT ADDRESS??
+
+Well, for PLT entries, the initial GOT address points back to the following
+"pushl" instruction in the PLT. So for "get_bar", we return to:
+"pushl $offset2", and then do "jmp .PLT0@PC".
+
+~~~ HANG ON. ACCESSING AN IMPORTED FUNCTION JUMPS TO THE PLT, WHICH JUMPS
+    TO AN ADDRESS SPECIFIED BY THE GOT, WHICH JUMPS BACK INTO THE PLT, WHICH
+    THEN JUMPS TO A DIFFERENT SPOT IN THE PLT.
+
+Yeah -- well, as for the last bit, it always jumps to "PLT0" at the start.
+
+~~~ WHY?
+
+All this oddity is basically just setup so that subsequent calls can go to the
+"right" function (i.e., "get_bar") as quickly as possible.
+
+The call to PLT0 is actually a stub to jump to the dynamic linker, where
+"get_bar" is located, and the GOT is updated. Afterwards, the actual call to
+"get_bar" is made.
+
+I'll draw a picture.
+
+AT THE START:
+"get_bar" --> PLT2 --> Address specified by GOT (PLT2's pushl) --> PLT0 --> ld.so
+
+The call to "ld.so" sees "offset 2" passed as an argument, which it can
+identify as corresponding to an imported function named "get_bar".
+As soon as ld.so can find "get_bar", it updates the GOT to point to "get_bar".
+
+Now, subsequent calls look like this;
+"get_bar" --> PLT2 --> Address specified by GOT (real get_bar)
+
+And the "pushl offset / jump to PLT0" code is never called again, for the
+get_bar entry.
+
+
