@@ -1,0 +1,172 @@
+Inspiration for this post comes from:
+http://cs.unc.edu/~fabian/courses/CS600.624/slides/exploits.pdf
+
+I'm assuming that someone reading this article has a rough idea of how
+functions are actually implemented using registers and the stack.
+However, no knowledge of exploits is required.
+
+~~~ CAN YOU REMIND ME HOW FUNCTION CALLS WORK?
+
+When functions are called in C (and other languages, but I'll use C as an
+example), certain parameters are saved on the stack.
+
+Let's use this function as an example:
+
+  int foo(int bar, int baz, void *blat);
+
+It's called here:
+
+  ...
+  foo(0, 50, NULL);
+  printf("Hello world!\n");
+  ...
+
+When this function is called, the following stack frame is set as follows:
+
+  (CALLER)
+    ...
+    argument 3    (blat)
+    argument 2    (baz)
+    argument 1    (bar)
+    RETURN ADDRESS (points to the "printf" instruction)
+  (CALLEE)
+    EBP of of CALLER's stack frame
+    Local variables
+    ...
+
+One way to exploit this code is to attempt to override the return address.
+
+~~~ WHY WOULD THAT EXPLOIT THIS CODE?
+
+Because once "foo" finishes, rather than jumping to "printf", it could
+jump wherever we want it to!
+
+~~~ AH, OKAY. SO HOW DO WE OVERWRITE THE RETURN ADDRESS?
+
+Well, there are a couple of ways. First, if we have arbitrary access to memory,
+we can just grab a pointer, change its value, and write to that spot on the
+stack. That's certainly possible.
+
+More common, however, is when a buffer exists on the stack, and it is not
+properly bounded. In this case, the "local variables" portion of the callee's
+stack can be overwritten, as wel as the saved EBP, and eventually the return
+address up in the caller's frame.
+
+~~~ SO WHERE COULD AN ATTACKER JUMP TO?
+
+Wherever their heart desires. This is a good question to ask, however. If an
+attacker wanted to, say, open a file and write "You got haxxed" to it, then
+this would be very difficult (probably impossible) by just overwriting a single
+return address.  It's not like the binary being exploited will naturally
+contain this malicious code.
+
+So how could an attacker put extra instructions inside a "trusted" binary,
+without recompiling?
+
+~~~ WELL, YOU MENTIONED OVERFLOWING A BUFFER OF DATA TO REWRITE THE RETURN
+    ADDRESS...
+
+That's one place it could go! So rather than jumping to another area in
+the "code" segment of memory, the return address could point to the stack,
+and we could write machine code directly to the stack. This certainly works.
+
+However, it's also easy to fight against. Setting the stack as "read/write/no
+execute" means that as soon as our control flow jumps to the stack, the program
+will abort due to a page protection error
+
+~~~ THERE MUST BE ANOTHER WAY TO RUN ARBITRARY CODE TO A FILE! RIGHT? OR
+    PERHAPS OPEN UP A PRIVILEGED SHELL?
+
+Okay, so let's rule out jumping execution from the "code" segment to the stack.
+
+Let's take a look at the code segment again. What does it look like?
+
+(PROLOGUE)
+  pushl %ebp        # put old EBP on stack
+  movl  %esp, %ebp  # get new EBP (pointing to return address). ESP == EBP!
+  subl  $N, %esp    # make space for locals
+(FUNCTION BODY)
+  INSTRUCTION 1
+  INSTRUCTION 2
+  ...
+  INSTRUCTION N
+(EPILOGUE)
+  movl  %ebp, %esp  # get old stack pointer back. ESP == EBP again.
+  popl  %ebp        # get old EBP back
+  ret               # Pop return address, jump to it.
+
+Oh yeah. Its filled with a ton of functions, which all look like that ^^^.
+
+So. Let's look at the stack frame we're exploiting again.
+
+  (CALLER)
+    ...
+    argument 3    (blat)
+    argument 2    (baz)
+    argument 1    (bar)
+    RETURN ADDRESS (points to the "printf" instruction)
+  (CALLEE)
+    EBP of of CALLER's stack frame
+    Local variables
+    ...
+
+So, we're going to be overwriting everything up to and including "RETURN ADDRESS".
+
+But what if we went further?
+
+      BEFORE             |       AFTER
+  (CALLER)
+    ...
+    argument 3           |     EBP 3
+    argument 2           |     RETURN ADDRESS 2
+    argument 1           |     EBP 2
+    RETURN ADDRESS       |     RETURN ADDRESS 1
+  (CALLEE)
+    EBP                  |     EBP 1
+    Local variables      |     JUNK DATA
+
+~~~ WHY DID YOU JUST BUNCH OF RETURN ADDRESSES THERE?
+
+Hear me out. Rather than overwriting ONE return address to jump into a random
+function, we write a BUNCH of return addresses (and desired EBPs), each of
+which jumps to the END of different functions.
+
+This way, when we use a function, we'll use the last couple of instructions,
+jump to the last couple of instructions of a NEW function, and keep going.
+We can chain together unrelated code into "new" code, which can construct
+our malicious code.
+
+This is called "Return Oriented Programming", or ROP for short. We're
+chaining together a bunch of function returns to get what we want.
+
+Similarly, this class of attacks overlaps with "Return-to-libc" attacks.
+Libc is a really well-known (and large!) collection of code, so it's easier
+to chain together LIBC return addresses than addresses in arbitrary binaries.
+
+~~~ WHAT ARE SOME OTHER ATTACKS LIKE THIS?
+
+See my articles on (format string attacks) and (heap overflows).
+
+~~~ HOW DO WE DEFEND FROM THESE ATTACKS?
+
+Canaries
+    Placing arbitrary bits before the return address, checked before returning.
+    DEFENDS against stack overflow attacks.
+    BROKEN by format string attacks. Canary can be read / memory can be
+      modified without touching canary.
+
+Shadow Stacks
+    Keep an extra copy of return addresses in a separate memory space.
+    Only return if the STACK return address matches the COPY return address.
+    That way, if the stack is overflowed, then the corresponding return
+    address is still valid.
+    DEFENDS against stack overflow attacks.
+    BROKEN by heap overflows (overwriting function pointers, not return
+      addresses) and stack overflows which only modify local variables.
+
+Writeable Pages XOR Executable Pages (pick AT MOST ONE)
+    Prevents stack from being executed.
+    DEFENDS against arbitrary code execution on stack.
+    BROKEN by ROP attacks.
+
+

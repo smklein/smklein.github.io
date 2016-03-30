@@ -1,0 +1,27 @@
+For more info, refer to:
+
+https://www.cs.berkeley.edu/~daw/papers/shadow-asiaccs15.pdf
+
+I assume you know about stack-smashing attacks before reading this post.
+
+~~~ STACK SMASHING ATTACKS SUCK. A LOT OF THEM SEEM TO RELY ON OVERWRITING
+    THE RETURN ADDRESS ON THE STACK. HOW CAN WE DEFEND AGAINST THAT?
+
+Use a shadow stack! The idea here is to place the return address in a
+non-stack location, where it cannot be overwritten by a stack overflow.
+
+There are several variations of shadow stacks. Some questions to consider:
+- Does the shadow stack contain ONLY return addresses, or it is a fully
+  parallel stack (as in, the shadow stack pointer is always equal to the
+  real stack pointer + some offset)?
+
+  These are referred to as the "traditional" vs "parallel" shadow stacks.
+
+- Does the shadow stack verify the return address on the REAL stack by
+  comparing the return addresses, or by just copying the return address
+  from the shadow stack?
+
+  These are referred to as the "overwriting" vs "checking" epilogues.
+
+TODO(finish this article)
+

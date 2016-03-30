@@ -1,0 +1,102 @@
+TODO(smklein): Format String Error exploits
+
+For more deets, see:
+http://www.cis.syr.edu/~wedu/Teaching/cis643/LectureNotes_New/Format_String.pdf
+
+~~~ WHAT IS A FORMAT STRING?
+
+Stuff like:
+  printf("Your number is %d!\n", 5);
+
+The printf function has a variable number of arguments, and interprets
+the string it is passed to determine how many arguments to consume off the
+stack. In this case, it sees "%d", so it knows that it requires at least
+one argument.
+
+~~~ OKAY, THAT MAKES SENSE WHEN THE NUMBER OF "%d"S IN THE STRING MATCHES
+    THE NUMBER OF ARGUMENTS. WHAT IF THERE IS A MISMATCH?
+
+Let's look at an example of this.
+  printf("%s%s", foo, bar);
+
+What does that code snippet do?
+
+If our stack looks like the following:
+
+(CALLER)
+  ...
+  ARGUMENT 3  (Address of string bar)
+  ARGUMENT 2  (Address of string foo)
+  ARGUMENT 1  (Address of string "%s%s")
+  RETURN ADDRESS
+  ...
+
+Then "printf" will dereference the address at "ARGUMENT 2" until
+a NULL character is reached, printing the memory there. It will
+do the same for "ARGUMENT 3", since two strings are passed to printf.
+
+What about this?
+  printf("%s%s");
+
+Well, printf will THINK that the stack looks exactly the same -- it expects
+"ARGUMENT 2" and "ARGUMENT 3" to be on the stack in the same position as
+last time (thanks to how it interpreted the ARGUMENT 1 string). However,
+those addresses could point anywhere! The memory at those locations will
+be printed until a NULL character is reached (or until the program crashes
+from accessing unmapped / protected memory).
+
+So let's look at a few specific "printf" attacks.
+
+~~~ VIEWING THE STACK:
+    printf("%08x %08x %08x %08x %08x\n");
+  Starting above the return address, this lets us see the five values on the
+  stack above where "printf" is called. This can be extended arbitrarily.
+
+~~~ VIEWING ADDRESS "0x12345678":
+    user_input[];
+    (set user_input somehow)
+    printf(user_input);
+
+    Where user input == "\x12\x34\x56\x78 %x (some number of %x) %x %s"
+
+  What's going on here? Well, "user_input"'s address is on the stack as the
+  first argument to printf. The format string itself uses the "%x" chain
+  to munch up addresses on the stack, one at a time.
+
+  STACK
+    %s\x00              (end of "user_input[]" string)
+    %x%x
+    %x%x
+    \x12\x34\x56\x78    (start of "user_input[]")
+    LOCAL VARIABLE 1
+    (LOCAL VARIABLES TO SET USER INPUT)
+    LOCAL VARIABLE N
+    ARGUMENT 1           (address of user_input)
+    ...
+
+  When printf is called, it corresponds the first "%x" with "LOCAL VARIABLE N",
+  and prints that value out (since it thinks that value is "ARGUMENT 2"). It does
+  the same with the rest of the "%x" arguments, printing the values on the stack,
+  until it finally prints the value of "LOCAL VARIABLE 1".
+
+  Now that "printf" has interpreted the arguments up to an address pointing to
+  "\x12\x34\x56\x78", it sees "%s". This "%s" tells printf "Hey, interpret
+  this argument as the address of a string, and print out this string for me".
+  printf does just that -- it prints the memory at 0x12345678 until a NULL
+  character is reached.
+
+  The hard part of this attack is figuring out how many "%x"es to use to munch
+  up all the local variables in between the "printf" call and "user_input[]".
+  It's not always clear!
+
+~~~ WRITING AN INTEGER TO ANY LOCATION IN MEMORY:
+  Use the "%n" format string modifier.
+    printf("Hello, world%n", &foo);
+  This snippet of (valid / non-malicious) code writes the number "12"
+  into "foo". "%n" means "write the number of characters written so far.
+
+  In the example above, discussing "VIEW ANY LOCATION IN MEMORY", replacing
+  the "%s" with "%n" will overwrite the address at 0x12345678 with the
+  number of characters printed so far. This can be useful for overwriting control
+  flow / access flags at specific addresses.
+
