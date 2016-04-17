@@ -1,0 +1,221 @@
+
+~~~ 2 / 7: Discrete Probability (crash course)
+
+U: Finite set of all "n bit binary strings".
+Ex, {0, 1} ^ 2 = {00, 01, 10, 11}
+
+Probability Distribution P over U is function:
+P: U --> [0, 1] (assigning probability of each element
+    in distribution)
+
+sum of P(x) for all x in U == 1
+
+Uniform distribution: All "n binary strings" are equal.
+  N elements? 1/N probability of sample being element x.
+
+Point distribution at "x0" -- P(x0) == 1, all other values have
+  P(xN) == 0.
+
+
+Events: Subset of universe
+
+For a set A (subset of U),
+   Pr[A] = Sum of P(x) forall x in A.
+   Pr[A] is in the range [0,1]
+
+  The set of A is called an EVENT.
+
+QUIZ:
+  U = {0,1}^8
+  A = subset of U where least two significant bits == "11".
+  Pr[A] == 0.25
+
+Union bound:
+  Pr[A1 U A2] <= Pr[A1] + Pr[A2]
+
+Example:
+  Pr[Lsb(x) == 11 or MSB(x) == 11] <= 1/2
+
+Random variable X:
+  Function, X: U --> V
+
+Random variable induces distribution on v.
+  Pr[X=v] := Pr[sampling an x from U, and x == v]
+
+QUIZ:
+  r = {0,1}^2
+  Define RV X = r1 + r2
+  Pr[X=2] = Pr[R='11'] = 0.25
+
+Output of "randomized algorithm" runs every time it is run.
+
+Example: encrypting! Though the inputs might be the same,
+the output will not necessarily be the same.
+
+Independence
+
+A and B are independent if Pr[A AND B] = Pr[A] * Pr[B]
+
+RV X, Y taking values in V are independent if
+  For ALL a,b in V, Pr[X=a AND Y=b] == Pr[X=a] * Pr[Yb]
+
+
+If Y is an RV over {0, 1}^N,and
+   X is an RV over {0, 1}^N,and
+   Z := Y XOR X
+   Z is a uniform variable on {0,1}^N
+
+   That's a fun property! No matter how X is distributed,
+   if "Y" is random / secret, no info is leaked about X.
+
+Birthday Paradox. Not a paradox.
+r1, ... rn from U, indpendentally identically distributed,
+  when n = 1.2 * |u| ^ (1/2), then
+  Pr[there exists an ri = rj] >= 1/2
+
+Similar idea used for "collision probability". Very important
+for hashing!
+
+
+~~~ STREAM CIPHERS 1: ONE TIME PAD + STREAM CIPHERS
+
+A cipher is defined over triple (K, M, C)
+  K = all keys possible
+  M = all messages possible
+  C = all ciphertext possible
+  Cipher is (E, D), where
+  E: K x M --> C
+  D: K x C --> M
+  D(k, E(k,m)) = m
+
+E if often randomized.
+D is always deterministic.
+
+EXAMPLE OF CIPHER: ONE TIME PAD
+
+  M = C = {0, 1}^N
+  K = {0,1}^N
+
+  C := E(k,m) = K xor M
+  D(k c) = K xor c
+
+  Very easy to determine key from C, M.
+  Very fast! But long keys.
+
+Ciphertext should reveal "no info" about PT.
+
+A cipher (E, D) over (K, M, C) has "perfect secrecy" if
+  For all m0, m1 in M, len(m0) == len(m1),
+  Pr[E(k, m0) = c] = Pr[E(k,m1) = c]
+    Where k is uniform in the keyspace.
+
+  AKA, given a ciphertext, you can't tell if the message
+  is m0 or m1 (for all pairs m0, m1).
+
+  No CT only attack (other attacks may be possible).
+
+OTP has perfect secrecy.
+  Forall m, c: Pr[E(k,m) = c] =
+    (# keys in k s.t. E(k,m)=c) / number of all keys
+  # {k in K st E(k,m) = c} = constant
+  (Numerator, denominator the same. Cipher has equal probability
+   forall m, c)
+
+  For OTP if E(k,m) = C, then
+    k xor m = c
+    k = m xor c
+    #{k in K: E(k,m) = c} = 1
+      --> How many keys map "m" to "c"? ONE (it's xor!)
+
+Perfect Secrecy implied |K| >= |M|.
+  Hard to use in practice.
+
+~~~ STREAM CIPHER.
+
+Repace "random" key by "pseudorandom" key.
+PRG: (Psueudo random generator)
+  Function, G:{0,1}^s --> {0,1}^n, for n >> s
+   (seed space to random number space).
+
+  E(k,m) := m xor G(k)
+  D(k,c) := c xor G(k)
+
+  Key is much shorter than message. No perfect secrecy!
+
+Minimally, PRG must be unpredictable.
+
+  Predictable G(K):
+    There exists an "i": if the first "i" bits of G(k)
+    are known, the rest of G(k) can be determined.
+
+    There exists an efficient algorithm A and there exists an
+    1 <= i <= n-1, s.t. (for a random key chosen from K)
+      Pr[A(G(k)) (for the first i bits) =
+         G(k) (predicting next i+1 bit)] >= 1/2 + epsilon
+
+  Unpredictable means that epsilon is zero for all bits.
+
+Examples of Weak PRGs (DO NOT USE FOR CRYPTO)
+  Linear Cong. generator with params a, b, p
+
+  r[0] = seed
+  loop:
+    r[i] <-- a*r[i-1] + b mod p
+    output few bits of r[i]
+    i++
+
+  Used for "random()" in glibc. But NOT UNPREDICTABLE!!!
+
+Non-negligible "e" (epsilon) is 1 / (2 ^ 30).
+    Negligible "e" (epsilon) is 1 / (2 ^ 80)ish.
+
+    Seems kinda handwavey, and like it will change with time.
+
+~~~ ATTACKS ON THE ONE TIME PAD
+
+Stream cipher is OTP, but "k" is "G(k)" instead, where
+PRG must be unpredictable.
+
+ATTACK #1: Two time pad.
+  Stream cipher key used more than once.
+  C1 <-- m1 xor PRG(k)
+  C2 <-- m2 xor PRG(k)
+
+  C1 xor C2? --> m1 xor m2.
+  Pretty easy to recover the messages from m1 xor m2.
+    Enough redundancy in English / ASCII.
+
+  Exists in real life!
+  MS-PPTP (windows NT),
+    client --> server encrypted with G(K)
+    server --> client encrypted with G(K) TOO!!!
+
+  ("||" means append)
+  802.11b WEP (wifi encryption).
+    Sending message to router?
+    Message: m || CRC(m)
+        xor'd with
+             PRG(IV || k)
+    Message SENT: IV || ciphertext
+    "IV" is a 24 string to alter PRG. Repeats every 16 million
+    frames, since 2^24 ~= 16M. "Two time pad" attack applies.
+
+    IV resets to 0 after power cycle.
+
+  Disk Encryption -- using OTP to encrypt file? Probs
+  broken into segments (ruh roh!). This leaks which part
+  of the file changes when edited.
+
+ATTACK #2: No integrity (OTP is malleable).
+  m --> (encrypted) --> m xor k.
+  Attacker fucks it up with an additional "xor by p".
+  Decrypt? m xor k xor p (xor with k) --> m xor p
+
+  Message has been changed! Attack can PREDICTABLY alter
+  message. Attacker can xor specific parts of message.
+
+  We will add integrity to OTP soon!
+
+
+
+
