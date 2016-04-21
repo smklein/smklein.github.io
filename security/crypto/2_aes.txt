@@ -1,0 +1,133 @@
+~~~ AES
+
+"Rijndael" won as AES (when submitted to NIST).
+
+Key sizes are 128/192/256 bits. Block size: 128 bits.
+
+AES128? Fast. But least secure.
+
+"Substitution Permutation Network", not Feistel.
+
+Input --> K1 xor'd with input --> Substitution --> permutation
+      --> K2 xor'd with input --> Substitution --> permutation
+      ... --> output
+
+Every step is invertible! Otherwise, impossible to decrypt.
+Decryption just involves steps in reverse order.
+
+AES operates on 128 bits, or 16 bytes. (BLOCK SIZE)
+
+4 x 4 input box.
+XOR with Kn
+10 rounds of
+1) Byte substitution
+2) Shift row
+3) Mix column
+--> Output
+
+K0, ..., K10 generated from key K by key expansion.
+16 bytes expanded into 176 bytes. (16 bytes x 11 keys)
+
+Byte substitution applies a 1 bytes S box.
+Then, the "ShiftRows" moves top row by 0, next row by 1, next row by 2, next row by 3.
+
+Shift column swaps columns. I think.
+
+"Precomputation" can be done to increase performance, at the
+cost of code size.
+
+Example: AES in javascript. Sent with no pre-computed tables.
+Fast over network. Pre-computed on client! Then performance
+is better.
+
+"aesenc" and "aesenclast" in Intel processors. Hardware assisted.
+
+Attack on AES
+
+"Best key recovery attack" is only four times better
+than exhaustive search. "as if" 126 bit key was used, instead
+of 128 bit key. Still pretty good.
+
+Related key attack on AES-256: Given 2^99 input/output pairs
+from four related keys in AES-256 can recover keys in time 2^99.
+
+However, this REQUIRES RELATED KEYS. Shouldn't be happening anyway.
+
+~~~ BLOCK CIPHER FROM PRG
+
+Can we build a PRF from a PRG?
+
+WARNING. THIS NOTATION IS WEIRD.
+K --> K^2 actually means take a Key which in "N bits" long,
+  and output a key which is "2N bits" long.
+
+Let G:K-->K^2 be a secure PRG.
+
+Define a 1-bit PRF F:K x {0,1} --> K as
+F(k, x is either {0,1}) = G(k)[x].
+
+Theorem: If G is a secure PRG, then F is a secure PRF.
+
+IN ENGLISH:
+
+Suppose we have a pseudo random number generator.
+Can we make a pseudo random function from that thing?
+Yeah. We get G(k) from the PRG. G(k)[0] (that's an array index)
+  is one bit, and G(k)[1] is another.
+PRF takes a single bit as input. Return G(k)[0] if input is zero,
+  input G(k)[1] if input is 1.
+
+  ^^ That was a case of 1 bit input --> output.
+  How about two bits of input?
+  Using G: K-->K^4, we can do the same thing.
+  Split G(K) into four parts.
+
+This can go on for a while. "GGM PRF"
+Given a G: K --> something twice the size of K (K^2)
+We can make a PRF F: K x {0,1}^n --> K
+
+Given an N bit long input x (x0x1x2...xn-1) and key k,
+  k1 =  G(k)[x0]
+  k2 = G(k1)[x1]
+  ...
+  kn = G(kn-1)[xn-1]
+
+Just think of it this way. You're relying on a secure
+G(k) mechanism to take one bit and randomly go to path 0 or 1,
+  right? Well, expand on that. Use each bit of an input key
+  as the "choice" of a path in a large tree.
+
+A quick recap.
+PRF: Function that is indistinguishable from a random func. (given  same domain / range).
+PRP: Bijective function that is indistinguishable from a random
+  set of bijective functions. PRP IS SYNONYMOUS WITH BLOCK CIPHER.
+
+Recall that feistel ciphers can turn "PRFs" into "PRPs", with
+3 or more "rounds of the "splitting in half / xoring" thing.
+(Luby-Rackoff theorem)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
