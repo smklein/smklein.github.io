@@ -1,0 +1,86 @@
+~~~ Security for a many-time key.
+
+Suppose we have a lot of data (we wanna use a block cipher), but we
+also wanna use a key multiple times.
+
+Result: Adversary sees MANY CTs with the same key.
+
+Adversary has the MAGICAL POWER OF "Chosen-Plaintext Attack (CPA)"
+    Many encrypted messages with same key? Mirrors real life, as if the
+    adversary could predict (or provide) arbitrary messages.
+
+CPA SEMANTIC SECURITY
+Semantic Security for many-time key? Modeled as game.
+    Adversary sends two messages
+    Gets an Encryption of ONE of the messages
+
+      Looks exactly like standard semantic security so far
+
+    However, NOW, attacker can send new queries! Can send "q" queries!
+
+    In "experiment 0", attacker always gets left message.
+    In "experiment 1", attacker always gets right message.
+
+    If the attacker can determine which experiment is happening, the attacker
+    wins.
+
+    Suppose attacker wants to KNOW the encryption of message "m".
+    Send in both messages equal to "m". Regardless of which one is returned,
+    it will be E(k,m).
+
+RUH ROH, I GOT SOME BAD NEWS
+
+All the ciphers we've seen so far? Insecure under CPA.
+
+BUT HOW?
+    Attacker provides "m0" twice. Gets E(k, m0) back.
+    Sends "m0, m1". Gets either E(k,m0) or something else.
+       ---> attacker can easily tell if m0 was sent, or "something else".
+            (output 0 if E(k, mb) == E(k, m0), else 1)
+
+How do we solve this?
+
+Well, if we encrypt a message multiple times,
+  >>> the encryptions MUST BE DIFFERENT. <<<
+
+Solution 1: Randomized Encryption.
+
+  m0 -- ENCRYPTION --> (maps to multiple possible encryptions)
+     (all of those encryptions) -- DECRYPTION --> m0
+
+     As a consequence, this means that the ciphertext will be longer
+     than the plaintext, since "random bits" are embedded into CT.
+
+     Example:
+      F: K x R --> M  is a PRF
+      E(k,m) = Get a truly random r, output (r, F(k,r) xor m)
+      Is E semantically secure under CPA?
+        --> YES, BUT ONLY IF R IS LARGE ENOUGH SO IT NEVER REPEATS
+            "PRF" is indistinguishable from truly random function.
+            Provides "uniformally random" pad to xor with m, as long
+            as r does not repeat.
+
+Solution 2: Nonce-based Encryption.
+  Encryption algorithm takes three inputs!
+  E(k, m, n) = c, and D(k, c, n) = m.
+  Nonce "n" MUST CHANGE from message to message.
+  It doesn't need to be secret OR RANDOM!!! Just NEVER used more than once.
+
+  Easy mechanism: Make the nonce a counter.
+  For example, HTTPS! Reliablility as part of protocol. Packet counters
+  increment in sync. Thus, no need to keep re-sending nonce with packets
+  (just keep track of it internally).
+
+  HOWEVER, if order isn't guaranteed, the nonce must be explicitly used.
+
+  Alternative: Pick the nonce at random. This has pros too! "stateless"
+  encryption.
+
+CPA security for nonce-based encryption.
+  System should be secure when the nonce is chosen by the adversary!
+  That being said, the adversary MUST CHOOSE DISTINCT NONCES.
+  Doesn't matter which ones, as long as distinct.
+
+  It's similar to CPA security.
+
+

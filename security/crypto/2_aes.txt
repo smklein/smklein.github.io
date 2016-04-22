@@ -109,6 +109,44 @@ Recall that feistel ciphers can turn "PRFs" into "PRPs", with
 
 
 
+~~~ ECB
+
+ECB's Block cipher:
+  Break message into blocks
+  Encrypt each block separately.
+  PROBLEM: if two blocks are equal? Blocks are equal.
+
+Recall what SEMANTIC SECURITY is:
+  Challenger provides (m0,m1). We encrypt it.
+  Can the challenger identify if the encrypted message is
+  m0 or m1?
+
+VERY EASY to break ECB's semantic security. Send repeat
+blocks! Look for duplicates.
+
+
+How can we avoid the mistake ECB made?
+  Using a "deterministic counter" as an OTP.
+  Combines multiple blocks in block cipher into one "large" stream
+  cipher.
+
+
+~~~ MANY TIME KEYS
+
+CBC: Cipher Block Chaining
+
+Let (E, D) be a PRP.
+E_CBC(k, m): Choose a RANDOM IV (same size as a block).
+IV   xor's M0 before encryption
+c[0] xor's M1 before encryption
+             ...
+c[n-1] xor's MN-1 before encryption
+
+This XORing can be decrypted, AS LONG AS IV IS SENT IN PLAINTEXT.
+
+
+
+
 
 
 
