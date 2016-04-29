@@ -217,5 +217,77 @@ ATTACK #2: No integrity (OTP is malleable).
   We will add integrity to OTP soon!
 
 
+~~~ REAL-WORLD STREAM CIPHERS
+
+RC4 (has some weaknesses)
+  Takes 128 bit key. Expands into 2048 bits.
+  Generates "1 byte per round".
+  Used in HTTPS / WEP.
+
+  Problems:
+    Bias in initial output (Pr[2nd byte = 0]) = 2/256 (instead of 1/256)
+      Basically, first 256 bytes are biased.
+    Prob of (0,0) is more likely than it should be. It's very slightly
+      biased this way, but it can be used to break RC4.
+    There are also "related key" attacks.
+
+CSS (Content Scrambling System) for DVD encryption (BROKEN)
+  Linear feedback shift register (LFSR)
+    Register, components of register. XOR'd together
+    "Shift" --> Switch which components of registers are used by
+      right shifting register. Xor'd result becomes first bit.
+    Result is streamed back into register.
+    Seed is initial state. Easy to implement in hardware.
+
+  Seed is limited to 5 bytes. Used as initial LFSR state.
+
+  1 || first 2 bytes of key --> 17 bit LFSR
+  1 || last 3 bytes of key  --> 25 bit LFSR
+
+  LFSRs run for 8 cycles. Added, mod 256. One byte outputted per round.
+
+  HOW TO BREAK?
+    Make "guesses" for the 17-bit LFSR. Use known prefix
+    of first 20 bytes (matching for DVD).
+
+eStream cipher
+  PRG: {0,1}^s x R --> {0,1}^n, where n >>> s
+
+  "R" : "Nonce", non-repeating value for a given key.
+  pair (k,r) never used more than once (but key can be reused).
+
+  For example, "Salsa 20"
+    {0,1}^128 (or 256) x {0,1}^64 --> {0,1}^n
+  Salsa 20(k,r) := H(k,(r,0)) || H(k,(r,1)) || ..
+
+~~~ HOW TO DEFINE PRG?
+
+Let G:K --> {0,1}^n be a PRG.
+We'd like to define what it means for that output of G(k)
+to be "indistinguishable" from the output of a uniform distribution
+from {0,1}^n.
+
+Statistical test on {0,1}^n.
+  Algorithm s.t. A(x) outputs "0" (not random) or "1" (random)
+
+A(x) = 1 iff there is a large difference in the number of "0" vs "1" bits.
+A(x) = 1 iff there are an unexpected number of "00"s.
+
+"Advantage" is based "How likely is the generator's # to pass A" vs
+                     "How likely is a REAL RANDOM #'s ability to pass A"
+
+Advantage takes "A" (statistical test) and "G" (generator) as inputs.
+
+Advantage close to 1? A can distinguish G from rand.
+Advantage close to 0? A cannot distinguish.
+
+QUIZ:
+  Suppose efficient A can always deduce LSB of PT from CT.
+  (E,D) not semantically secure.
+  Adversary gives m0,m1 (differing LSB. Receives C := E(k, mb).
+    Needs to try to guess if "b" is 0 or 1.
+  Adv(B, (E,D)) = |Pr[Exp(0)] - Pr[Exp(1)]| = |0-1| = 1
+
+
 
 

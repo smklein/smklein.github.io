@@ -1,0 +1,418 @@
+~~~ MAC
+
+We want to make sure MiTM attacks cannot modify messages.
+Suppose we don't care about confidentiality for now (should be easy to
+add with the other tools we have)?
+
+
+  Alice --> Bob
+  While sending message m (encrypted with key k),
+  she also sends "tag" <-- S(k, m). (signing algorithm)
+  bob verifies tag with V(k,m,tag). Should output "yes" on success.
+
+  Basically, we just need to generate an S,V pair which acts this way.
+
+  Integrity REQUIRES shared key. Cannot happen without shared key.
+
+    >> Example: CRC. Done without a key. But if the message is tampered,
+       the attacker can easily produce his OWN CRC.
+       CRC designed to detect RANDOM errors, not INTEGRITY errors.
+
+What are the attacker's powers for MAC?
+  "Chosen Message Attack"
+  Attacker can send m1, m2, ..., mq.
+    <-- Alice sends back ti <-- S(K, mi)
+
+Attackers goal:
+  "Existential forgery". Produce a NEW message/tag pair (m,t)
+  (which hasn't already been sent to Alice), EVEN IF THE message is
+  gibberish.
+
+  Attacker shouldn't be able to produce (m,t') from (m,t), if t' is valid.
+  (impossible to make NEW tag given old message)
+
+QUIZ:
+  Suppose attacker can find m0, m1, such that S(k,m0) == S(k,m1) for
+  about half the keys k in K.
+  Can this MAC (the S/V pair) be secure?
+    >>> NO. Weak to chosen messsage attack! Attacker choses m0,
+    and has an advantage sending pair "m1, S(k,m0)".
+
+QUIZ:
+  Suppose the tag is 5 bits long.
+  Can this MAC be secure? Nope. 1/32 chance of just "guessing" tag.
+  TLS uses 96 bit-long tags.
+
+Example: Protecting System Files
+  At install time, system computes "file, tag" pairs using a key made
+  from the user's password. Then, password deleted.
+
+  Virus infects system! Modifies system files.
+
+  User reboots into clean OS, supplies his password.
+  Secure MAC? All modified files will be deleted.
+
+~~~ MACs based on PRFs
+
+Recall. S(k,m) to make t, V(k,m,t) to verify t.
+Attacker has "chosen message attack", wants to do "existenial forgery".
+
+Secure PRF --> Secure MAC
+  Define S(k,m) as F(k,m)
+  Define V(k,m,t) as if F(k,m) == t, output 1.
+
+  QUIZ: Suppose PRF outputs 10 bit long string. Is the MAC based on this
+  PRF secure?
+    >>> NO. 1/1024 chance of just "guessing" tag.
+
+  If output of PRF is large, then we're fine.
+  Each tag will be "indistinguishable" from random.
+  And now the adversary is supposed to predict the next tag value?
+  But it will look like random!
+
+  AES is a MAC for 16-byte message.
+
+  Question: How to turn "small-MAC", can we build a "big-MAC"?
+  (MAC for large inputs)
+    >> In practice, CBC-MAC, HMAC are used to do this. Convert "small-PRF"
+       into "big-PRF".
+
+  If you have a PRF which outputs "n" bits, and it is truncated to only
+  "t" bits, it is still random...  as long as 1/2**t is still negligible.
+  (aka, can turn 256 bit PRF into smaller MAC tag).
+
+~~~ CBC MAC, NMAC
+
+Given a PRF for short messages, how to we construct a PRF for large messages?
+
+Encrypted CBC MAC (ECBC).
+  Given PRP (F:K x X --> X)
+  Define a new PRF F(ecbc) : K^2 x X ^ (less than L) --> X
+
+  Can take messages up to length L (which can be really big).
+
+  Idea: Run through CBC chain, but don't output anything!
+  At very end of last block, feed the final output into
+  F(k1, .) (DIFFERENT KEY) to generate the tag.
+
+    Recall: CBC chain is "xor input with output of previous block" before
+    feeding into next F(k, .)
+
+  THAT FINAL ENCRYPTION (with different key) IS REQUIRED.
+  ECBC without that final encryption is called "raw CBC", and is insecure.
+
+NMAC
+  Similar to ECBC (same inputs) but outputs "k" in keyspace.
+  Take message, key as input.
+  Feed 1st block of message + key into "F(k,m)".
+  Use that output as key for 2nd message block...
+  Use that output as key for 3rd message block...
+
+  At very end, use last output as "t". pad it with "fpad", feed
+  as input using SECOND input key "k1" to F(k1, t||fpad).
+  Use that output as "tag", which is an element in the keyspace.
+
+QUIZ (this applies to ECBC, NMAC):
+  Suppose we made a MAC which just used the "cascade" function, but
+  never used the "second key" k1.
+    >> This MAC can be forged. With "one msg query".
+        cascade(k,m) --> "t".
+        cascade(k, m||w) (where w is a new block)?
+          We get the penultimate "key" with "t", and we can compute
+          the new tag as F(t, w)
+
+  With the additional "F(k1, .)" step, the attacker can extend the message,
+  but he cannot sign it with the final tag.
+
+TONS of people forget that last step. Don't do that yourself.
+
+If we have an underlying PRF F that is a PRP (like AES), then we have a limit
+on the number of messages which can be signed.
+
+COLLISIONS
+
+For AES (128 bits), we can send 2^48 messages before we risk a collision.
+
+IF we get a collision, we can form an attack that lets us forge a MAC,
+kind of like if the final signing did not happen.
+
+~~~ MAC PADDING
+
+How do we deal with messages which aren't the expected block size?
+
+How do we pad?
+  >>> Pad with "zeroes". Is this secure?
+  >>> NO. Given a tag on message "m", the attacker gets the tag on "m||0".
+      The attacker could send this padded message, and it would be validated.
+      This counts as an existential forgery.
+
+The padding must be INVERTIBLE. For two messages m0, m1, pad(m0) != pad(m1).
+
+ISO: Pad with "1000...000", add a dummy block if needed.
+Iterate from back, delete all zeroes up to the first one (and delete that one)
+Important to add dummy block! Otherwise we're open to forgeries, since
+there is a new (similar) message that could be validated if sent.
+
+CMAC (nist standard). Key = (k, k1, k2).
+It's like an optimized CBC-MAC.
+  >> No final encryption step (use XOR with k1 instead).
+    >> Pad with "100...000"
+  >> No dummy block (xor with k2) if we WOULD have needed a dummy block.
+
+~~~ PARALLEL MAC, CARTER-WEGMAN MAC
+
+Previous MACs are sequential. Let's parallelize!
+
+PMAC
+  Break message into blocks.
+  For block i:
+    Make P(k,i) xor M[i]
+    Input that to F(k, .)
+  For all those outputs, XOR them, input that to F(k, .). That's our tag!
+  Uses padding similar to CMAC (no need for dummy block)
+
+  Apparently P(k,i) is easy to compute.
+
+  PMAC is incremental. If one block changes (assume F is a PRP), then we:
+    - Invert F(k, tag)
+      - XOR that with F(k, m[i] XOR p(k,i))
+      - XOR that with F(k, m'[i] XOR p(k,i))
+    - Apply F(k, .) to the result. Bam! Updated tag.
+
+One time MAC.
+  MAC I = (S,V). Adversary A.
+  Adversary only gets ONE message, must forge a new message.
+
+  Can be faster than PRF-based MACs!
+
+  Let q be a large prime.
+  key = (k,a), where those are two random ints in [1, q]
+  msg = (m[1], ..., m[L]) (each block is 128 bits)
+  S(key, msg) = P(msg,k) + a (mod q)
+    Where P(m,x) = m[L]*x^L + ... + m[1]*x    (a polynomial of degree L)
+
+  THIS ONLY WORKS FOR A MESSAGE WHICH IS SENT ONCE, AND IT'S SUPER FAST.
+
+We can convert One-time MACs into Many-time MACs (WTF)
+"Carter-Wegman MAC"
+                                     v Fast long input
+  CW((k1, k2), m) = (r, F(k1, r) XOR S(k2, m))
+                        ^ Short but slow
+  Requires a random "r".
+
+~~~ COLLISION RESISTANCE
+
+End goal? Describe HMAC, which is collision resistant, and popular
+in internet protocols
+
+Recall:
+  ECBC-MAC, CMAC: Commonly used with AES
+  NMAC: Basis of NMAC   (converts PRF with SHORT inputs into LONG inputs)
+  PMAC: Parallel with MAC
+  Carter-Wegman MAC: First NON-PRF MAC. Built from fast one-time MAC.
+
+Let H: M --> T be a hash function. |M| >> |T|.
+
+A collision for H is a pair, m0, m1 in M such that H(m0) = H(m1), m0 != m1.
+
+Collision resistant means "if for all EFFICIENT algs A, Advantage of making
+collision is negligible.
+
+Let I = (S,V) be a MAC for short messages over (K,M,T) (using, for example,
+                                                        AES)
+Let H : M (big) --> M
+
+  Define I (big) = (S (big), V (big))
+        S (big) (k,m) = S(k, H(m))
+        V (big) (k,m,t) = V(k, H(m), t)
+  IF
+    I is a secure MAC
+    H is collision resistant
+  THEN
+    I (big) is a secure MAC
+
+COLLISION RESISTANCE IS NECESSARY FOR MAC SECURITY.
+One collision --> one forgery.
+
+If we have a "read-only public space", then we can get the benefits of MAC
+without a secrety key. For software package F, verify (in public space)
+H(F). Collision resistance? Hard to forge.
+
+~~~ GENERIC BIRTHDAY ATTACK
+
+AKA, a case study in collisions.
+
+General collision attack:
+  H : M --> {0,1}^n is a hash function, with |M| >> 2^n
+  Generic alg to find collision in time O(2^(n/2)) hashes.
+
+  1. Choose 2^(n/2) random messages
+  2. For i=1,...,2^(n/2) compute ti=H(mi)
+  3. Look for a collision in tags. If not found, go back to step 1.
+
+  How many iterations do we need (not many).
+
+Birthday paradox.
+  r1,...,rn in {1,...,B}. INDEPENDENT. Uniformally distributed.
+  B = size of interval
+  Theorem: when n = 1.2 x B^(1/2), then Pr[two samples are the same] >= 1/2
+  (proof given for uniform distribution. Other distributions more colliding).
+
+  Pr[there is a collision]
+  = 1 - pr[No collision]
+  = 1 - (B-1)/B * (B-2)/B * (B-3)/B ... (B-n+1)/B
+  = 1 - Product (from i = 1 to n-1) of (1 - i/B)
+  >= 1 - Product (from i = 1 to n-1) of (e^(-i/B))    Taylor expansion
+  >= 1 - e^(-n^2 / 2B)
+
+Let's apply this "n = 1.2 x B^(1/2)" theorem to birthdays!
+  1.2 * (365)^(1/2) = 23.
+  Get 23 people? Pr[birthday collision] >= 1/2
+
+Recall the "Generic attack"?
+  The magic number of inputs for collision is
+    ~= 2 * square root of output space.
+  QUIZ:
+    n bit output. Looking for collisions in 2^(n/2) random elements?
+    Well, there are 2^n outputs. 2 * (2^n) * (1/2) --> two iterations
+      of sampling 2^(n/2) elements to get collision with super high
+      probability.
+
+SHA 1 collisions ARE COMING SOON!!!!! AVOID!!!
+
+Use SHA-256, or SHA-512. Better resistance.
+
+~~~ MERKLE-DAMGARD PARADIGM
+
+Recall:
+  H: M-->T, |M| >> |T|.
+  Avoid collisions (pair m0,m1 which map to same hash).
+
+  GOAL: Given CR (collision resistant) function for SHORT messages,
+        find a CR function for LONG messages.
+
+Merkle-Damgard iterated construction.
+  Given h : T x X --> T (compression function)
+  Use a fixed IV.
+
+  "Compress" m[0], IV with "h" function. Use that as IV for
+  m[1] (both are compressed with "h" again)... continued.
+
+  Padded at end of message with "PB".
+    Consists of "1000...000" || msg len.
+    No space for padding? Add another block.
+
+  We make H : X^(<=L) --> T
+
+THEOREM:
+If "h" is collision resistant, then so is H.
+  Proof. If collision on H exists, then there is a collision on h.
+         Suppose H(M) = H(M'). We build collision for h.
+         H0 = IV
+         H1 = h(m[0], IV)
+         H2 = h(m[1], H1)
+         ...
+
+         (same for H(M'), but with apostraphes added. Also, length
+         may not be equal to original message)
+
+         h(Ht, Mt || PB) = H (t+1) = H' (r+1) = h(H'r', M'r || PB')
+         IF
+           Ht != H'r or
+           Mt != M'r or
+           PB = PB' then collision for h happens. stop.
+
+         Suppose Ht = H'r and Mt=M'r and PB=PB' (which means t = r)
+          This only happens if the messages are identical.
+     LONG STORY SHORT:
+        EITHER Collision exists for "h", or
+               The messages are identical.
+     THEREFORE if "h" is collision resistant, "H" is collision resistant.
+
+~~~ CONSTRUCTION COMPRESSION FUNCTIONS
+
+I want an "h", so we can make a MD construction (using info from last lecture)
+
+Can we build it from a Block cipher?
+  E: K x {0,1}^n --> {0,1}^n is a block cipher.
+
+  Davies-Meyer compression function: h(H,m) = E(m,H) xor H
+    Message block used as key, H used as message (in H).
+    Theorem: Suppose E is ideal cipher.
+             Finding a collision h(H,m)=h(H',m') takes O(2^(n/2)) evaluations.
+             (Recall, that's at most as good as brute force, with birthday
+              collision)
+
+  QUIZ: Suppose h(H,m) = E(m,H)     (no XOR with H)
+        To build an (H', m') which collides with (H,m),
+        >>  We want to define a H' which equals h(H,m) with a random
+            H, m, and m'.
+      >>>>  H' = D(m', E(m,H))
+        >>  Apply encryption to both sides (using key m')
+        >>  E(m',H') = E(m,H)
+  There are tons of other block cipher constructions. But many variants of
+    these are NOT collision resistant!
+
+Case study: SHA-256.
+  It's an Merkle-Damgard function, with Davies-Meyer compression,
+  and a SHACAL-2 block cipher.
+
+  512-bit key and 256-bit block inputted to SHACAL-2. 256-bit block outputted.
+
+Provable compression functions.
+  Choose a random 2000-bit prime p and random 1 <= u, v <= p.
+  For m,h in {0, ..., p-1}, define h(H,m) = u^H * v^m (mod p)
+
+  FACT: Finding a collision for h(.,.) is as hard as solving a
+        "discrete-log" function modulo p.
+        Problem? It's slow.
+
+~~~ HMAC
+
+Recall:
+  Merkle-Damgard construction chains a bunch of "h" functions to
+  compress message (it makes a function H(m) from h(H,m)).
+
+Can we use H(.) to directly build a MAC, without relying on PRF.
+
+QUIZ:
+  Given H: X^(<=L) --> T is a CR M-D hash function.
+  S(k,m) = H(k||m)
+  This is insecure because...
+    >> Given H(k||m), anyone can compute H(k||m||PB||w) for any w.
+       Basically, once PB has already been added, it's easy to add
+       ANOTHER w (which has an implied PB').
+
+HMAC: Method to H into MAC.
+  Example: SHA-256; output is 256 bits
+
+  S(k,m) = H(k XOR opad, H(k XOR ipad || m))
+  Similar to NMAC PRF.
+    h(k XOR ipad, IV) acts like k1  (key which starts message compression)
+    h(k XOR opad, IV) acts like k2  (key which compresses final MAC into tag)
+
+    HOWEVER, "ipad" and "opad" are fixed constants... so K1, and K2 are
+    dependent.
+
+~~~ TIMING ATTACKS ON HMAC
+
+EXAMPLE (from Keyczar crypto library)
+
+def Verify(key, msg, sig_bytes):
+  return HMAC(key,msg) == sig_bytes
+
+PROBLEM: "==" implemented "byte-by-byte" comparison. Exits when
+  first inequality found. (Solution: iterate over entire HMAC, no matter
+  what. DIFFICULT WITH OPTIMIZING COMPILER: MAKE SURE THAT DOESN'T BITE YOU)
+
+ATTACK: If any byte causes verification to take longer, than that byte
+  is "right".
+
+
+
+
+
+
+
+
+

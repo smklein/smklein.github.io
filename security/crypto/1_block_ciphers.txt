@@ -1,0 +1,77 @@
+~~~ BLOCK CIPHER OVERVIEW
+
+Maps "n bits" of input to "n bits" of ciphertext (using E,D, and a "k bits" key).
+
+Examples include AES.
+
+Typically built by iterating.
+
+R(k,m) is a "round function".
+
+m  --> R(k1, m ) --> m1
+m1 --> R(k2, m1) --> m2
+        ...
+
+where k1...kn are made expanded from "k".
+
+Block ciphers are much slower than stream ciphers (like salsa) but you can do
+more things with them.
+
+Pseudo Random Function (PRF) defined over (K,X,Y):
+   F: K x X --> Y
+      Requirements: F is efficient.
+
+Pseudo Random Permutation (PRP) defined over (K,X):
+   E: K x X --> X
+      Requirements: E(k,x) is efficient, deterministic.
+                    E(k,.) is one-to-one.
+                    An efficient inversion algorithm, D(k,y) exists.
+
+"PRP": 3DES, AES, are of form "K x X --> X".
+
+Any PRP is ALSO a PRF. PRPs are a subset of PRFs. (sorta? Don't they need to be invertible)?
+
+Secure PRF
+  F: K x X --> Y
+  Funs[X,Y] the set of ALL functions from X to Y
+  Sf = { F for a fixed key k (from K)}. It's a subset of Funs[X,Y].
+
+  A PRF is secure if a random function in Funs[X,Y] is indistinguishable
+  from a random function in Sf.
+
+  Imagine adversary where "x1, x2 ... xn" supplied to EITHER
+  f <-- Funs[X,Y] OR Sf (the subset with a fixed key).
+  The adversary SHOULD NOT BE ABLE TO TELL WHICH ONE IT IS GETTING A RESULT FROM.
+
+~~~ DES (DATA ENCRYPTION STANDARD)
+
+Just to recall from last time, block ciphers require specifying how
+1) key expansion works
+2) how the round function works
+
+DES has been replaced by AES.
+
+Feistel Network:
+  Given functions: f1, ..., fd : {0,1}^n --> {0,1}^n
+    These don't need to be invertible.
+  Goal: Build invertible function F:{0,1}^2n --> {0,1}^2n
+
+  Input split up into "L" and "R" halves.
+  For i = 1, ..., d,
+    Ri = Fi(R(i-1)) XOR Li
+    Li = Ri-1
+  Very easy to invert, thanks to use of XOR and splitting into halves.
+  "Inverting" is building a decryption circuit.
+    Looks like encryption circuit, but f1, ..., fd applied in reverse order.
+
+Feistel networks used in many block ciphers (not AES tho).
+
+Luby-Rackoff Theorem.
+  Given f: K x {0,1}^n --> {0,1}^n (a SECURE PRF)
+  Using a 3-round Feistel makes F, K^3 x {0,1}^2n --> {0,1}^2n, a secure PRP.
+
+DES is a 16 round Feistel network.
+
+
+
+
