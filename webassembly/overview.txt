@@ -1,0 +1,40 @@
+~~~ WHAT'S WEBASSEMBLY?
+
+It's a new binary format for the web.
+
+We call it "wasm", by the way.
+
+~~~ WHAT?
+
+Okay, think of it this way. When you compile code, it turns into machine code
+(eventually). Your CPU can munch on this machine code, and it knows how to
+turn that into actual instructions in action.
+
+That being said, when you can compile code, you can compile to something
+other than machine code. You can compile code into textual assembly.
+You can compile code into LLVM IR (or GCC IR, presumably, though I'm not
+sure if that is as easy to do), which doesn't even need to have a target
+machine in mind.
+
+wasm is another target.
+
+No, you can't run it on your CPU directly. It isn't assembly.
+However, all major browsers will be able to quickly tranform
+wasm INTO real machine code instructions.
+
+It's actually quite similar to a Chrome technology called PNaCl, which
+was essentially a version of that LLVM IR I mentioned earlier.
+
+~~~ OKAY, SO WHAT'S DIFFERENT ABOUT WASM?
+
+Well, as I mentioned earlier, all major browsers are going to support it.
+
+That's pretty big.
+
+Unlike the object size of wasm files, which are intended to be as small
+as possible, and as fast as possible to load.
+
+wasm also intends to be safe. TODO: WHY
+
+
+
