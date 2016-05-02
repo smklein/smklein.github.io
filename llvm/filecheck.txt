@@ -1,0 +1,114 @@
+~~~ WHAT IS FILECHECK?
+
+Why, LLVM's FileCheck is the "Flexible pattern matching file verifier"!
+
+Wow so simple.
+
+~~~ WHAT?
+
+FileCheck is kind of weird. It is used a ton in the LLVM codebase to
+  a) Run tests
+  b) Verify the output of these tests
+
+The weird part about FileCheck is that it manages to include execution commands,
+code, and test verification all in the same file. This is convenient, but it can
+make things look a little confusing if you aren't familiar with how FileCheck
+works.
+
+~~~ CAN WE LOOK AT AN EXAMPLE?
+
+Sure.
+
+This is the example provided from LLVM's tutorial at:
+http://llvm.org/docs/CommandGuide/FileCheck.html
+
+(If you don't understand the syntax, I'll walk through it afterwards!)
+I'll refer to this file as INPUT_FILE.ll:
+    ; RUN: llvm-as < %s | llc -march=x86-64 | FileCheck %s
+    define void @sub1(i32* %p, i32 %v) {
+    entry:
+    ; CHECK: sub1:
+    ; CHECK: subl
+            %0 = tail call i32 @llvm.atomic.load.sub.i32.p0i32(i32* %p, i32 %v)
+            ret void
+    }
+
+    define void @inc4(i64* %p) {
+    entry:
+    ; CHECK: inc4:
+    ; CHECK: incq
+            %0 = tail call i64 @llvm.atomic.load.add.i64.p0i64(i64* %p, i64 1)
+            ret void
+    }
+
+FileCheck is invoked from the "RUN:" line within the file.
+
+  In this case, the command says to input the current file (a .ll file) into
+  "llvm-as", pipe that bitcode file to "llc" (translating it into x86-64 machine
+  code), and pipe THAT file into FileCheck (after the original file is passed,
+  via "%s").
+
+~~~ WAIT, THAT'S KIND OF CONFUSING. WHAT ARGUMENTS DOES FILECHECK NEED?
+
+The final arguments to FileCheck will end up being:
+  FileCheck INPUT_FILE.ll GENERATED_FILE.o
+
+The rest of the "RUN" line is basically just a shell, as long as you end up
+passing these final arguments to FileCheck.
+
+FileCheck will return "0" if "GENERATED_FILE" matches the contents specified by
+"INPUT_FILE", otherwise, it will return a non-zero value.
+
+~~~ HOW DOES THIS CONTENT MATCHING WORK?
+
+See those "CHECK" lines? They are strings that are expected to be found
+in the GENERATED_FILE, in that order. Whitespace can be different, but
+otherwise the strings must match exactly.
+
+Let me reemphasize this: the order is important!
+
+The checks in the file above boil down to this:
+    ; CHECK: sub1:
+    ; CHECK: subl
+    ; CHECK: inc4:
+    ; CHECK: incq
+
+Those strings must appear in order in the file. However, there may
+be OTHER contents in the "GENERATED_FILE" between those strings.
+
+~~~ WHAT IF I WANT TO VERIFY THE CONTENTS OF A BLOCK OF CODE?
+~~~ HOW CAN I GUARANTEE AN EXACT MATCH OF MULTIPLE LINES?
+
+This is what the "CHECK-NEXT" keyword solves.
+
+; CHECK:      foo
+; CHECK-NEXT: bar
+
+^ This ensures that "bar" is on the line immediately following "foo" (if not,
+  then FileCheck won't return zero)
+
+~~~ WHAT IF I ONLY KNOW PART OF A STRING THAT WILL BE GENERATED?
+
+You can use pattern matching to find a more flexible format of matching.
+Remember what I said at the beginning?
+
+*** FLASHBACK ***
+  Why, LLVM's FileCheck is the "Flexible pattern matching file verifier"!
+*** /FLASHBACK ***
+
+When you're checking a line, you can use "{{REGEX}}" as part of the
+CHECK. Variables can even be safed this way!
+
+    ; CHECK: test5:
+    ; CHECK:    notw     [[REGISTER:%[a-z]+]]
+    ; CHECK:    andw     {{.*}}[[REGISTER]]
+
+In this snippet of code, the register after "notw" is saved as a variable
+named "REGISTER". It must reappear in the "andw" line for the test to pass!
+
+~~~ COOLBEANS
+
+For more info on FileCheck, look at the LLVM documentation.
+(or look in the LLVM codebase -- there are tons of examples!)
+
+
