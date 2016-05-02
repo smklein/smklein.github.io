@@ -9,15 +9,16 @@ Let's say you're a developer. You want to run your entire codebase (which,
 fortunately for this example, consists of the file "hello.c") through NaCl.
 
 1) Build your source code! Use the NaCl toolchain to build a "NaCl Executable",
-   or "nexe". It's an ELF file, but with some minor tweaks so it can be verified
-   as safe.
+   or "nexe". It's an ELF file, but with some minor tweaks so it can be
+   verified as safe.
 
 SOURCE CODE                              COMPILED CODE
 hello.c     ---> [NaCl toolchain] --->   hello.nexe
 
-  NaCl Toolchain: NaCl provides some tools for compiling and linking your source code
-  into these safe binaries. This way, as a developer, you can automatically meet the
-  safety constraints if your code compiles. Think "nacl-clang", "nacl-ld", etc.
+  NaCl Toolchain: NaCl provides some tools for compiling and linking your
+  source code into these safe binaries. This way, as a developer, you can
+  automatically meet the safety constraints if your code compiles. Think
+  "nacl-clang", "nacl-ld", etc.
 
 2) Send your code to an end user!
 
@@ -31,10 +32,10 @@ hello.nexe  ---> [The Internet]   --->   hello.nexe
 COMPILED CODE                            COMPILED CODE
 hello.nexe  ---> [NaCl Validator] --->   hello.nexe
 
-  NaCl Validator: NaCl defines some rules for what it considers to be a 'safe' binary.
-  A static analyzer is used to confirm these rule have been satisfied.  If a
-  binary doesn't conform to these rules, it can't run. Once again, 'hello.nexe'
-  shouldn't be changed by this step.
+  NaCl Validator: NaCl defines some rules for what it considers to be a 'safe'
+  binary.  A static analyzer is used to confirm these rule have been satisfied.
+  If a binary doesn't conform to these rules, it can't run. Once again,
+  'hello.nexe' shouldn't be changed by this step.
 
 4) End user starts executing your code.
 
@@ -42,14 +43,15 @@ COMPILED CODE                            EXECUTING CODE
 hello.nexe  ---> [NaCl loader]    --->   hello.nexe (executing)
 
   Yeah, a custom NaCl loader is used to constrain this executable before it
-  even starts. If your '.text' segment is writable, and you can access it, that's not
-  very safe, is it? After this custom loader has finished starting the code,
-  all accesses to system resources are mediated by the NaCl runtime.
+  even starts. If your '.text' segment is writable, and you can access it,
+  that's not very safe, is it? After this custom loader has finished starting
+  the code, all accesses to system resources are mediated by the NaCl runtime.
 
-  NaCl Runtime: We don't want untrusted binaries to have direct access to system calls.
-  This is how normal executables interact with the OS! Unconstrained access here
-  would be just as bad as running these binaries WITHOUT NaCl. Thus, a "service runtime"
-  exists, which lets controlled access to native system calls, in a safe way.
+  NaCl Runtime: We don't want untrusted binaries to have direct access to
+  system calls.  This is how normal executables interact with the OS!
+  Unconstrained access here would be just as bad as running these binaries
+  WITHOUT NaCl. Thus, a "service runtime" exists, which lets controlled access
+  to native system calls, in a safe way.
 
   No pop-up boxes. No need to trust 'hello.nexe'. If it runs, it's safe.
 
@@ -59,7 +61,7 @@ Hrm... that's a good point. I should clarify what that means.
 
 "Safe" from the perspective of the validator / loader:
 - The binary will not be writeable after being loaded.
-  WHY: This seems obvious.
+  WHY: This seems obvious. If this breaks, other contraints break.
 - The binary is statically linked with a start address of zero, and .text
   starts at 64K.
   WHY: This lets us insert trusted code in the bottom 64K.
@@ -67,10 +69,11 @@ Hrm... that's a good point. I should clarify what that means.
   combination of an 'and' and a 'jmp', forcing control flow to jump to 32-bit
   aligned addresses.
   WHY: This preserves control flow integrity.
-- The binary is padded up to the nearest page with at least one 'hlt' instruction.
+- The binary is padded up to the nearest page with at least one 'hlt'
+  instruction.
   WHY: No code execution is allowed to lazily NOP its way out of control
-- The binary contains no instructions or pseudo-instructions overlapping a 32-byte
-  boundary.
+- The binary contains no instructions or pseudo-instructions overlapping a
+  32-byte boundary.
   WHY: Control flow integrity! Targets jump to 32 byte boundaries, and are
   contrained to them.
 - All valid instruction addresses are reachable by a all-through disassembly
