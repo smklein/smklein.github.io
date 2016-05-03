@@ -1,0 +1,88 @@
+Dining Philosophers
+
+Five philosophers around table. Each has a chopstick on either side.
+Needs two chopsticks to eat.
+
+Algorithm to eat? Avoid deadlock!
+
+Easy solution: Exponential backoff.
+Grab chopsticks. Can't grab the other? Let go, wait a random amount
+of time.
+
+Random time to avoid "starvation" (running indefinitely, no progress).
+  Also called "livelock".
+
+"Fast" solution:
+
+  In a loop, take_forks(), eat(), put_forks().
+
+  int status[N]
+  semaphore mutex = 1;
+  semaphore fork_access_tokens[N];
+
+  try_to_pick_up_forks(int philosopher_num) {   /* only if hungry! */
+    if (status[philosopher_num] == HUNGRY &&
+        status[LEFT] != EATING && status[RIGHT] != EATING) {
+      status[philosopher_num] = EATING
+      up(&fork_access_tokens[philosopher_num])
+    }
+  }
+
+  take_forks(int philosopher_num) {
+    GLOBAL LOCK
+    status[philosopher_num] = HUNGRY
+    try_to_pick_up_forks(philosopher_num)
+    GLOBAL UNLOCK
+    down(&fork_access_token)    /* BLOCK if we didn't get access earlier! */
+  }
+
+  put_forks(int philosopher_num) {
+    GLOBAL LOCK
+    status[philosopher_num] = THINKING
+    try_to_pick_up_forks(LEFT)
+    try_to_pick_up_forks(RIGHT)
+    GLOBAL UNLOCK
+  }
+
+
+
+Reader Writer Problem
+
+Read access CVAR: RC_CVAR
+Write access CVAR: WC_CVAR
+Semaphore to Lock access to "reader count, writer count" : RC LOCK
+Writer access lock: WRITER LOCK
+
+Reader:
+  RC LOCK
+  while (wc != 0)
+    RC_CVAR.WAIT(RC LOCK)
+  rc++
+  RC UNLOCK
+ /* Read Data */
+  RC LOCK
+  rc--
+  rc == 0, wc != 0? WC_CVAR.SIGNAL()
+  RC UNLOCK
+
+Writer:
+  RC LOCK
+  wc++
+  while (rc != 0)
+    WC_CVAR.WAIT(WC LOCK)
+  RC UNLOCK
+
+  WRITER LOCK
+ /* Write Data */
+  WRITER UNLOCK
+
+  RC LOCK
+  wc--
+  wc != 0?  WC_CVAR.SIGNAL()
+  else  RC_CVAR.BROADCAST()
+  RC UNLOCK
+
+
+
+^ You could optimize better for "multiple writers", etc.
+  I think that works though.

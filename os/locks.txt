@@ -260,7 +260,14 @@ other process. No process will block calling "up".
 
 Semaphore:
   Provides Up/Down operations. Protected by spin lock.
-Semaphore of size 1: "Binary semaphore". Acts like mutex.
+Semaphore of size 1: "Binary semaphore". Looks like mutex.
+
+Different meanings though.
+
+Mutex: Exclusive access to resource. I go first. Then you.
+Binary Semaphore: Used for "synchronization". Can be "given" to another
+  process to signal something. I don't think you need to "hold" the semaphore
+  to call "up" on it.
 
 Shared memory for locks can be mapped to multiple processes, OR it can
 exist inside the kernel itself.
