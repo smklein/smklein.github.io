@@ -1,0 +1,146 @@
+https://www.youtube.com/watch?v=VqCkCDFLSsc
+
+Clang's Abstract Syntax Tree
+
+YOU SHOULD LEARN
+1) The basic structure of the Clang AST
+2) How to navigate the AST
+3) Tools to understand the AST
+4) Interfaces to code against the AST
+
+
+ASTContext
+  "Identifiers" stored here
+  Keeps info around AST
+  Entry point into AST -- "getTranslationUnitDecl" (root of AST)
+
+CORE CLASSES
+
+Decl
+  CXXRecordDecl
+    --> WTF why isn't this called "class declaration"?
+    --> Google for "clang + ______"
+    --> Answer: Structs, Unions, AND Classes. Known as "CXXRecords".
+  VarDecl
+  UnresolvedUsingTypenameDecl
+Stmt
+  CompoundStmt
+  CXXTryStmt
+  BinaryOperator
+    >> Assignment here too! That's an expression. So an expression is a
+    >> statement? Gross. This is kind of a historical fuckup.
+Type
+  PointerType
+  ParentType
+  SubstTemplateTypeParenType
+
+  Types can be nested.
+
+
+GLUE CLASSES
+
+DeclContext (inherited by decls that contain other decls)
+TemplateArgument (accessors for templates)
+NestedNameSpecifier
+
+No common interface for traversing AST (as of 2013).
+
+Each "node" has methods.
+
+IfStmt has "getThen", "getElse", "getCond", for accessing other parts.
+
+CXXRecordDecl has "getDescribedClassTemplate".
+Type: "getAsCXXRecordDecl". Lets you move to declaration from the type.
+
+"QualType" is stuff like "const".
+
+
+LOCATIONS
+
+Locations are IDs, managed by SourceManager.
+Point to "Tokens". This allows for fast operations over source code.
+
+Let's look at a declaration:
+                getPosition()
+                |
+  void MyClass::someMethod() {}
+  |                          |
+  getLocStart()              getLocEnd()
+
+And a statement:
+  getCallee()->getBase()->getNameInfo()->getLoc()
+  |   getCallee()->getMemberNameInfo()->getLoc()
+  |   |
+  Var.function()
+  |           |
+  |           getLocEnd()
+  getLocStart()
+
+And a type:
+  Types are modeled as "TypeLoc". They all point to the same type.
+  "getLocStart()", and "getLocEnd()" on types too.
+
+
+Let's look at an example.
+
+int * p;
+
+PointerTypeLoc --> QualType --> PointerType --> getPointeeType()
+  | (getPointeeLoc)                               |
+  V                                               V
+  BuiltinTypeLoc                  ---->         QualType
+                                                  V
+                                                BuiltinType
+
+All TypeLocs have "QualTypes", which qualify the underlying
+type.
+
+From this "PointerTypeLoc", multiple ways of accessing underlying
+"int" type.
+
+
+
+RecursiveASTVisitor
+  "Call me back on TYPES I care about"
+  Does not give any context
+
+AST Matchers
+  Trigger on EXPRESSIONS.
+  They can bind context, and provide it inside a callback.
+
+
+TOOLING
+
+How can we access the AST through clang?
+
+AST dumps!
+
+$ clang -Xclang -ast-dump foo.c
+
+^ XXX XXX XXX PROVIDES A REALLY USEFUL AST DUMP
+
+(include paths may need to be written out in more complex examples)
+
+$ clang-check foo.cpp -ast-list | grep PARTS_OF_AST
+$ clang-check foo.cpp -ast-dump -ast-dump-filter PARTS_OF_AST
+
+^ Usable even for large chunks of code.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
