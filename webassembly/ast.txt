@@ -1,0 +1,21 @@
+~~~ WHAT DOES WASM CODE LOOK LIKE?
+
+wasm is represented as an AST.
+
+Every function body consists of one expression.
+
+All expressions and operators are explicitly typed.
+No implicit type conversions occur.
+
+wasm memory is a contiguous, byte-addressable range of memory
+from "0" to "memory_size". "Untyped array of bytes".
+
+It's sandboxed. (how?)
+It does not alias any part of the execution engine / execution stack /
+local variables.
+
+
+
+
+
+

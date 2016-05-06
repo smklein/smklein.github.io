@@ -1,0 +1,45 @@
+Scheduling
+
+Processes / threads competeing for CPU. How to allocate?
+
+Process vs thread scheduling a bit different. Kernel usually
+ignores the originating process, and schedules a "kernel thread".
+
+Interacting with user? Schedule that shit FIRST.
+
+Some processes are CPU bound (lots of CPU work at once), others
+are I/O bound (blips of CPU with lots of waiting for I/O).
+
+I/O bound becoming more common. (CPUs faster, disks slow)
+
+Scheduling needed when:
+  1) Process created (run parent or child?)
+  2) Process exits (who should run next? if no one, idle)
+  3) Process blocks on I/O or semaphore
+  4) Interrupt occurs (scheduling optional -- recommended on clock int).
+
+"Preemptive" -- process can be interrupted.
+
+"First-Come, First-Served". Nonpreemptive version? V easy to schedule.
+  Single queue. "Fair". Wasteful. Stops on I/O bounded process.
+
+"Shortest Job First". Only optimal when all jobs are available,
+  no deadlines possible.
+
+"Shoftest remaining time next". Good service for short jobs.
+
+"Round-robin". Each process gets a quantum. Preemption.
+
+"Context switch". Should be much faster than quantum.
+
+"Priority Scheduling". Highest priority runs first.
+  Priorities can be changed for fairness. "Multiple queues".
+
+Real time is a totally different beast.
+
+
+
+
+
+
+

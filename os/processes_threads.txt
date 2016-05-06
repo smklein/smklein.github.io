@@ -1,0 +1,34 @@
+TODO(smklein): Recap processes / Threads up to this point
+
+~~~ HOW CAN PROCESSES TALK TO EACH OTHER?
+
+This is a question without an "easy" answer. The general topic
+is discussed as "Interprocess Communication", or "IPC".
+
+There are three major questions to answer when discussing IPC:
+  1) How can data be passed from one process to another?
+  2) How can race conditions be avoided?
+  3) How should IPC be sequenced when dependencies are present?
+
+Issues (2) and (3) also exist for threads, though (1) is simplified,
+as threads share an address space with each other.
+
+~~~ HOW CAN WE AVOID RACE CONDITIONS?
+
+There are a few ways to avoid race conditions.
+The cause of IPC race conditions involves multiple processes
+operating on shared data at the same time.
+
+The most brute force solution to this problem is to use something
+called "mutual exclusion". If a critical section is defined (i.e., the
+part of the program which operates on shared data), and only one
+process is allowed to operate on that data at once, then races
+could be avoided.
+
+Multiple conditions must hold to avoid races, including:
+1) No two processes may be in a critical section at once
+2) No processes outside the critical region can block another process
+3) No process should wait forever to enter the critical region
+
+TODO(smklein): Continue, mention locks.txt
+

@@ -1,0 +1,387 @@
+~~~ HOW CAN WE ACHIEVE MUTUAL EXCLUSION BETWEEN PROCESSES?
+
+Let's look at a simple case with a brute force solution.
+
+Let us consider a single-processor system. The only way that
+multiple processes can be in a critical region is if:
+  a) Process A enters the C.S.
+  b) Process A receives an interrupt
+  c) Process B starts executing
+  d) Process B enters the C.S.
+
+A simple solution to avoid race conditions involves letting process A
+disable interrupts prior to entering the C.S., avoiding the chance of preemption.
+
+~~~ SO WE'VE SOLVED MUTUAL EXCLUSION?
+
+Not so fast. This solution actually kind of sucks.
+
+From the kernel's perspective, processes are all competing for access to resources
+(i.e., they are non-cooperative generally).
+
+If a process could disable interrupts, why would it reenable them? To maximize CPU
+access, a process may continue operating, blocking other processes from making
+progress. This is not ideal.
+
+Additionally, the assumption we made of a "single-processor system" is necessary
+for this solution: on multiple processors, disabling interrupts will only impact
+the single CPU that executed the "disable" instruction. The other processors
+will potentially enter the C.S. and access shared data in an unsafe (racy) manner.
+
+~~~ WELL, CRAP. I GUESS DISABLING INTERRUPTS IS EVIL.
+
+Not always! It's just not great in userspace.
+
+The kernel may want to disable interrupts momentarily when it requires
+sequential operation. Inside the kernel, code is "trusted", and it will want to
+reenable interrupts as soon as it is safe.
+
+That being said, the same multi-core issue from earlier is still relevant,
+even in the kernel.
+
+~~~ CAN WE COME UP WITH A SOLUTION IN SOFTWARE?
+
+Sure.
+
+Consider a variable called "lock" which is (somehow) accessible between
+processes. This variable is initially zero.
+
+When a process wants to enter the C.S., the lock is read.
+  If it is zero, it is set to one (and the C.S. is accessed).
+  If it is one, then someone else is in the C.S.
+
+This, of course, has a glaring hole: Two processes can read "zero" at the same
+time, and both set the lock to "one". Then, both processes will be in the C.S.
+at the same time. This breaks the purpose of having a lock in the first place!
+
+There is a janky way to "fix" this:
+  Using two processes, use "STRICT ALTERNATION".
+  Process zero can access the C.S. when the lock is "zero".
+    After the C.S., the lock is set to "one".
+  Process one can access the C.S. when the lock is "one".
+    After the C.S., the lock is set to "zero".
+
+This solution, however:
+  Only works with two processes
+  Can block a process indefinitely (if the other does not access the C.S.)
+  Requires the "waiting" process to spin in a while loop. This is called
+    "busy waiting", as it burns CPU time (which sucks, a lot, especially when
+    the amount of waiting is unbounded).
+
+~~~ THAT DOESN'T SOUND LIKE MUCH OF A SOLUTION.
+
+Yeah, locking primitives are hard.
+
+In 1981, Peterson came up with a much better solution ("Dekker" did earlier, but
+I'm going to skip that algorithm in favor of Peterson's).
+
+"Strict Alternation" worked using a concept of "turns", but unfortunately,
+it did not register any idea of "interest" in accessing the C.S., and as such,
+REQUIRED the processes to take turns.
+
+Peterson's algorithm adds the notion of "interest", and lets a single process
+access the C.S. again and again without alternation.
+
+In English, Peterson's algorithm works as follows:
+  To enter the C.S., a process must identify itself as interested.
+  It must then set "turn" to its process ID.
+  LOOP:
+    If "turn" has changed, enter the C.S.
+    If the other process is not interested, enter the C.S.
+    Otherwise, Loop.
+
+  When leaving the C.S., a process just marks itself as no longer interested.
+
+  A good way to think about Peterson's algorithm is as follows:
+    1) Processes enter the C.S. when they're interested
+    2) Processes use "turn" to break ties when multiple processes
+       are interested.
+
+In code:
+
+  #define NUM_PROCESSES 2         /* Named "0" and "1" */
+  /* SHARED VARIABLES */
+  int turn;
+  int interested[NUM_PROCESSES]   /* Initialized to zero */
+
+  /* LOCKING PROCEDURES */
+  void enter_CS(int my_pid) {        /* "pid" is ID of calling process */
+    int other_pid = (my_pid == 0) ? 1 : 0;
+    interested[my_pid] = TRUE;
+    turn = my_pid;
+    while (turn == my_pid && interested[other_pid] == TRUE)
+      continue;
+    /*
+     * C.S. can only be accessed when:
+     * turn == other_pid    (other proccess tried entering CS after me)
+     * OR
+     * interested[other_pid] == FALSE   (other process isn't interested)
+     */
+  }
+
+  void leave_CS(int my_pid) {
+    interested[my_pid] = FALSE;
+  }
+
+This solution is better than strict alternation.
+  1) The longest a process will block is the length of the OTHER process's
+     critical section.
+  2) A process will not block if the OTHER process is not trying to access the
+     C.S.
+
+~~~ OKAY, COOL. THANKS PETERSON. BUT WHY DO WE HAVE TO DO THIS IN SOFTWARE?
+~~~ WHY CAN'T OUR HARDWARE-MINDED FRIENDS HELP US OUT?
+
+They can! This is especially important once we start thinking more about
+multicore systems.
+
+There is an instruction known as "test and set lock" (there are variants, but
+the idea is similar).
+
+  TSL RX, LOCK
+  ^ This instruction does the following:
+    1) Reads the value of LOCK into register RX.
+    2) Stores a nonzero value at LOCK.
+
+~~~ WAIT, HOW IS THIS DIFFERENT FROM A LOAD AND A STORE? THIS IS IDENTICAL TO OUR
+~~~ BROKEN SOFTWARE SOLUTION?
+
+At first glance, they do look similar. However, TSL has a BIG difference:
+the TSL instruction is ATOMIC, meaning that it is indivisible. No other
+processor can access the memory word until the instruction is finished.
+
+This is good and bad. The instruction locks the memory bus to ensure this property.
+This guarantees safety, but unfortunately, also hurts performance significantly
+compared to a typical load and store.
+
+Let's write out the software for entering/exiting the C.S. using TSL:
+
+  enter_region:
+    TSL RX, LOCK        ; Old value of "LOCK" in RX. "LOCK" is now "1".
+    CMP RX, #0
+    JNE enter_region    ; If "RX" (the old "LOCK") was NOT zero, loop.
+    RET                 ; If "RX" (the old "LOCK") WAS zero, enter the C.S.
+
+  leave_region:
+    MOVE LOCK, #0       ; Put zero back in "LOCK", marking it as available.
+    RET
+
+For reference, another "atomic" instruction like TSL is XCHG.
+
+  XCHG RX, LOCK
+  ^ This instruction does the following:
+    1) Swaps the value in "LOCK" and the value in register "RX".
+
+This instruction can also be used to query a "LOCK" for a zero value atomically.
+
+~~~ NEAT. SO NOW WE HAVE TWO SOLUTIONS FOR LOCKING: PETERSON'S AND ATOMIC OPS.
+
+Yup.
+
+~~~ HRM... BOTH SEEM TO CAUSE ALL WAITING (NON-C.S.) PROCESSES TO SPIN IN A LOOP...
+
+Yeah, this is the busy waiting I mentioned earlier.
+This eats up CPU time.
+This sucks.
+
+An ideal lock will allow the waiting process to "sleep", that is, not burn
+CPU time in a loop while waiting.
+
+~~~ SO HOW DO WE MAKE A LOCK LIKE THAT?
+
+This is an idea that tripped me up the first time I learned it, so pay attention.
+
+1) Spin locks are slow. They burn CPU time.
+2) Sleeping / Waking up processes is better, but we don't want any race conditions
+   in the process of setting up sleeping/waking statuses.
+
+If, for example, we use the following locking pseudocode:
+
+  Entering C.S.:
+     (atomically) check/grab resource
+     If not available:
+       Go to sleep
+       Loop back to "Entering C.S."
+     Else if available: Enter C.S.
+     ...
+  Leaving C.S.:
+       Give up "resource"
+       Wake up anyone waiting
+       Return
+
+It's totally possible for this race condition to occur:
+  1) Process one accesses resource, enters C.S.
+  2) Process two tries to access resource. Fails. Is about to sleep, when...
+  3) Process one gives up resource. Sends wakup signal. Returns.
+  4) Process two sleeps indefinitely...
+
+Crap! We tried to get the best of both worlds (no spin locks + sleeping + waking up),
+but we failed...
+
+This is called the "lost wakeup" problem.
+
+The solution here basically boils down using a spin lock to protect a
+"C.S. access" structure, which uses sleeping / waking up mechanisms to prevent
+CPU spinning for the actual C.S.
+
+~~~ HOW DOES THIS STRUCTURE WORK?
+
+I'll make a "C.S. access" structure here known as a semaphore.
+
+Let's use the "producer-consumer" problem to show this.
+This is a problem where multiple processes exist, some which are "producers",
+and some which are "consumers". These processes shared a fixed-size buffer.
+
+Producers want to write data INTO the buffer.
+Consumers want to read data OUT of the buffer.
+
+Producers should wait when there is no more room in the buffer.
+Consumer should wait when the buffer is empty.
+
+A construct called a "semaphore" helps us solve this problem.
+Similar to a normal lock, it stores a number -- but that doesn't need to
+be strictly zero or one!
+
+A semaphore starts with the number of resources available -- in this case,
+the size of the buffer.
+
+The semaphore has two operations, called "up" and "down", which increment
+and decrement the value of the semaphore, respectively. Importantly, these
+operations are atomic, like the lock.
+
+If a process calls "down", it tries to access a resource. If it cannot, then
+it sleeps.
+
+"Up" effectively "gives up" a resource. If an earlier process tried to access
+the resource using "down", and it was unable to do so, "up" will wake up that
+other process. No process will block calling "up".
+
+~~~ CAN WE RECAP?
+
+Semaphore:
+  Provides Up/Down operations. Protected by spin lock.
+Semaphore of size 1: "Binary semaphore". Looks like mutex.
+
+Different meanings though.
+
+Mutex: Exclusive access to resource. I go first. Then you.
+Binary Semaphore: Used for "synchronization". Can be "given" to another
+  process to signal something. I don't think you need to "hold" the semaphore
+  to call "up" on it.
+
+Shared memory for locks can be mapped to multiple processes, OR it can
+exist inside the kernel itself.
+
+Mutex:
+  Simplified binary sempahore. Call "thread_yield" when mutex
+  is busy. Calls thread scheduler (no kernel jump!). mutex_lock is very
+  fast. Alternatives, like "mutex_trylock" (return instead of yielding on
+  failure) exist.
+
+~~~ HOW CAN WE MAKE THESE LOCKING PRIMITIVES FAIR?
+
+Use spin locks around a queue.
+
+~~~ WHAT'S A FUTEX?
+
+Okay, so locking/synchronization is important. It also happens a lot
+in kernels / computer systems. We need to make it FAST!
+
+How do we make something fast?
+1) We minimize the really slow parts
+2) We optimize for the common case
+
+The "slow parts" in locking involve the contention cases.
+The "common case" in locking involves minimal contention.
+
+A Futex, or a "Fast user space mutex" avoids dropping into the kernel
+unless contention exists.
+
+The kernel holds a "wait queue", that lets multiple processes to wait on a
+lock (in order). Getting added to the wait queue is really slow, but
+grabbing a free lock avoids this whole process.
+
+~~~ WHAT'S A CONDITION VARIABLE?
+
+Condition Variables, or "cvars" expand on mutexes.
+  Mutexes block access to a critical region.
+  Condition variables allow threads to block due to an unmet condition.
+
+Condition variables hold a mutex and "wait" / "signal" on it.
+
+To call "wait" on a cvar, the mutex must be held. "wait" gives up the mutex,
+and waits for a signal.
+
+"signal" lets the cvar return from "wait". However, "signal" doesn't
+immediately wake up waiters. It requires that the lock is given up before
+causing the "wait" to return.
+
+If a signal is sent to a cvar on which no thread is waiting, the signal
+is lost.
+
+As a rule of thumb: cvars are used with mutexes. The mutex protects
+both:
+  1) Some resource
+  2) Access to the cvar
+
+~~~ WHAT'S A MONITOR?
+
+Think Java's "synchronized" keyword.
+
+A high-lvel synchronization primitive intended to made synchronization
+easier. A monitor is a collection of procedures accessing data.
+
+Only one process can be active at any instant.
+
+Basically, the compiler implements mutual exclusion around monitor
+entries. The code writer does not need to know how this works,
+they usually just write a "synchronized" keyword.
+
+Monitors also allow condition variables to exist -- however, these variables
+are tied to arbitrary variables inside the monitor. "Wait" and "signal"
+operations allow operating on these variables like traditional mutexes/cvars.
+However, to avoid the nitty-gritty details, "signal" on a condition variable
+in a monitor forces the process to exit the monitor immediately.
+
+This also manages to avoid the "lost wakeup" problem mentioned earlier.
+If a process is about to sleep (via wait) when another is about to wake
+it up (via signal), the sleeper will "miss" the early signal.
+
+Why?
+
+Because the monitor automatically assures mutual exclusion between monitor
+procedures. The "signaller" won't be able to start ANY part of the monitor
+until the "waiter" has left the monitor (via exiting or sleeping).
+
+~~~ SEMAPHORES SEEM REALLY LOW-LEVEL, AND MONITORS WON'T WORK OVER NETWORKS.
+    HOW CAN I SYNCHRONIZE ACROSS NETWORKS?
+
+Message Passing!
+
+Granted, this welcomes a whole nother area of issues.
+Messages can be lost on the network. Acknowledgements can be lost.
+Naming needs to be decided prior to message transmission.
+Authentication must be established as well.
+
+Even if the sender and receiver are on the same machine,
+copying messages from one process to another is slower than
+simple semaphore or monitor operations.
+
+~~~ THESE SYNCHRONIZATION PRIMATIVES SEEM DESIGNED FOR COMMUNICATION
+~~~ BETWEEN A SMALL NUMBER OF PROCESSES. HOW CAN WE DEAL WITH GROUPS?
+
+To synchronize groups, applications can divide themselves into "groups",
+separated by "barriers".
+
+A barrier is a point in the code at which a process blocks until ALL
+processes have reached that point. Think of it like a locked door
+that requires the cooperation of N processes to be opened.
+
+
+
+
+
+
+
+
+
