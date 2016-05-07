@@ -66,7 +66,7 @@ These bundles are used for three primary reasons:
      instructions don't sandbox code unless they're all executed in order.
      Think about something like "AND + JMP", to sandbox code. Executing just
      the "JMP" is not sandboxed!
-  2) Prevending code from jumping into "trampoline" sequences.
+  2) Preventing code from jumping into "trampoline" sequences.
      There are special bits of code, inserted by the loader, which allow
      transfers from the sewers of Untrusted code to the magical land of Trusted
      code. These sequences must be laid out carefully, and like pseudo-instructions,
@@ -253,20 +253,20 @@ really quickly (or at least the biggest differences).
 
 It actually has a similar design, but with a different implementation.
 
-The ARM sandbox is zero-based (meaning the untrusted region starts at address zero), but thanks to some Windows-specific reasons, this is not possible with x86-64.
+The ARM sandbox is zero-based (meaning the untrusted region starts at address
+zero), but thanks to some Windows-specific reasons, this is not possible
+with x86-64.
 
 Recall, ARM was able to just mask out the top bits of addresses when accessing
 memory (or just test against those top bits, in the case of memory stores).
-Doing so on x86-64 won't be so easy -- instead, a register known as
-"RZP" (which is currently r15) is used as a "base register". Instead of the
-untrusted region starting at zero, it starts at "RZP", where RZP is aligned
-to 4GB.
+Doing so on x86-64 won't be so easy -- instead, a register known as "RZP" (which
+is currently r15) is used as a "base register". Instead of the untrusted region
+starting at zero, it starts at "RZP", where RZP is aligned to 4GB.
 
 ~~~ SO WHEN EXACTLY DO WE USE RZP?
 
-Any time we want to access memory, we do so as an offset from RZP.
-RZP is also considered "read-only" -- instructions which can modify it
-are banned.
+Any time we want to access memory, we do so as an offset from RZP.  RZP is also
+considered "read-only" -- instructions which can modify it are banned.
 
 As long as all offsets from RZP are in the untrusted region, our code is
 sandboxed.
