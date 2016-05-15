@@ -5,9 +5,13 @@ http://clang.llvm.org/docs/LibASTMatchersReference.html
 LibASTMathcers provides a DSL for accessing Clang's AST. It's in C++.
 Each subsequent match makes the match more specific.
 
+ASTMatchers can do a lot of the same things that clang "Visitors" can do
+(see FrontendActions for examples of visitors), but they are significantly
+more readable and condensed.
+
 ~~~ EXAMPLE ~~~
 
-Wanna match all class or union declarations?
+Wanna match all class, struct, or union declarations?
     recordDecl()
 Wanna narrow down to those with the name "Foo"?
     recordDecl(hasName("Foo"))
