@@ -1,0 +1,265 @@
+
+
+Confidentiality: Security against CPA attack / eavesdropping
+Integrity: Unforgeable against chosen message attack
+
+This module: Confidentiality + Integrity
+
+This defends against adversary that can mess with network AND that
+wants to read messages.
+
+✔ Confidentiality, ✘ Integrity? IMPOSSIBLE
+    Using a block cipher w/o integrity? Easy to modify ciphertext and
+    corresponding plaintext. Modified en route? Frontend server may
+    decrypt for you!
+✘ Confidentiality, ✔ Integrity? Use MAC
+✔ Confidentiality, ✔ Integrity? AUTHENTICATED ENCRYPTION mode
+
+
+Authenticated Encryption System (E,D).
+    Cipher where:
+        E: K x M x N --> C
+        D: K x C x N -- M or "Bottom", which says ciphertext is REJECTED
+    Ciphertext Integrity:
+        Attacker cannot make a new "C" that passes D without rejection.
+    Authenticated Encryption (AE):
+        [Semantically secure under CPA] AND [Ciphertext Integrity]
+    Defends against "CHOSEN CIPHERTEXT ATTACKS"
+    Does NOT defend against "replay attacks".
+
+Chosen Ciphertext Attack:
+    CPA & CCA
+        Adv has TWO OPTIONS!
+    Adversary has "m" it wants to encrypt.
+        Can get encryption.
+    Adversary has "c" it wants to decrypt.
+        Adv can submit and GET DECRYPTION FOR arbitrary ciphertext.
+    CHALLENGE:
+        CAN Adv decrypt a "new" C?
+
+Ex: CBC with random IV is NOT CCA secure.
+    Input m0, m1, IV. Get c, which encrypts mb. E(k, mb) = CBC(IV, c[0])
+        (assume 1 block messages)
+    Adv sends c' = CBC(IV xor 1, c[0]) for encryption.
+        Response: D(k, c') = mb xor 1.
+        EASY TO IDENTIFY mb!!! (matches m0 or m1, only off by one bit)
+
+AUTENTICATED ENCRYPTION DEFENDS AGAINST CCA ATTACKS
+    See attack above?
+        Every single "new ciphertext" sent out? Returns "REJECT".
+    This basically puts adversary back to CPA security.
+        This is our goal.
+
+How to make AE encryption from Ciphers + MACs
+
+Past attempts:
+    Using ENCRYPTION KEY ke and MAC KEY ki
+    SSL:   E(ke, m || S(ki, m))     Tag encrypted along with ciphertext
+        SECURE? ✔/✘
+        Vulnerable to some CCA attacks? CAN be secure sometimes...
+        Fine with CTR mode encryption?
+        "Mac-then-enc"
+    IPsec: E(ke, m) || S(ki, c)     Tag computed from ciphertext
+        SECURE? ✔✔✔
+        Message contents "hidden" in c. LOCKED in with tag.
+        "Enc-then-mac"
+    SSH:   E(ke, m) || S(ki, m)     Tag same as from message
+        SECURE? ✘✘✘
+        TAG sent in clear! Might leak info about message
+        "enc-and-mac"
+
+USE "ENCRYPT - THEN - MAC"!
+    --> THIS ONE IS AWESOME ✔✔✔✔✔✔✔✔✔✔✔✔✔
+
+AEAD:
+    Combo of encrypted and unencrypted data.
+    ALL of it should be authenticated!!! (MAC applied to entire thing)
+
+Methods for AE:
+    AES/GCM: Fast
+        CTR mode encryption THEN CW-MAC
+    AES/CCM: Slower, smaller code
+        CBC Mac then CTR mode encryption
+    AES/EAX: Slower, smaller code
+        Ctr mode encryption then CMAC
+
+OCB:
+    AE scheme, combines encryption and MAC phase.
+    Also super parallel
+    Sort of a block counter + encrypted, authenticated checksum
+    Unused because of patents :(
+
+Attacks on AE:
+    TLS record protocol
+    D(k, record, ctr)
+    1. CBC decrypt record using k
+    2. Check pad format (abort if invalid)
+    3. Check tag on header/ctr/data (abort if invalid)
+
+    Suppose adversary can differentiate between errors.
+    "Padding oracle"
+        Attacker submits ciphertext, learns if pad is valid.
+        Example of CCA.
+
+    This padding oracle can be made with timing attacks.
+    "invalid pad" --> quicker response
+
+    Attacker has ciphertext c = (c[0] || c[1] || c[2]), IV
+    Attacker wants to uncover m[1]. BUT HOW?
+        Attacker will ignore c[2]
+        Attacker will xor c[0] with: g xor 0x01
+            "g" is a GUESS of final byte
+        According to CBC decryption:
+            m[1] = D(k, c[1]) xor c[0]
+        With the attacker's changes, c = c'[0] || b ... "b" is last byte
+            m[1] = D(k, c[1]) xor (c'[0] || b) xor g xor 0x01
+        If attacker is right:
+            m[1] = D(k, c[1]) xor c'[0] xor 0x01
+            "VALID PAD" -- g == b known
+        If attacker is wrong
+            "INVALID PAD"
+        Keep guessing "g".
+            We started with (0x01).
+            Next? (0x02, 0x02). Then (0x03, 0x03, 0x03), etc...
+        Uncovers entire message from back!
+
+Key Derivation!
+    Okay. How do we get a "new" key from a "source" key?
+    "KDF" -- "key derivation function"
+    Source Key SK used as input to KDF.
+    KDF uses a PRF.
+    KDF(SK, CTX, L):
+        F(SK, (CTX || 0)) || F(SK, (CTX || 1)) || ... up to L
+    CTX: String that "uniquely identifies the application".
+        --> Even if two apps uses the same "source", they don't
+            repeat keys (i.e., between SSH, TLS, etc)`
+    OH NO what if SK isn't uniform???
+        --> PRF may not look random...
+            (key exchange? Hardware RNG? biased sometimes)
+    EXTRACT-then-EXPAND:
+    1.  Extract pseudo-random key k from key SK.
+        Salt: Non-secret string chosen at random.
+        Turns non-uniform distribution into something more "rando"
+    2.  EXPAND key into multiple keys.
+
+    HKDF: KDF from HMAC.
+        Extract: k <-- HMAC(salt, SK)
+        Expand: Use HMAC as PRF with key k.
+
+    PBKDF:
+        How to get keys from passwords?
+        Passwords SUCK -- low entropy.
+        Use "salt" + "slow hash function"
+        PKCS#5.
+            hash (password || salt), repeat c times (to make stuff slow)
+
+        (salt is public, slows dictionary attacks)
+
+Deterministic Encryption
+    Matches given message to same ciphertext
+    Recall, deterministic encryption cannot be CPA secure!
+    WHY? Attacker can beat CPA security game.
+        Send m0, m0. Get E(k, m0)
+        Send m0, m1. Either get same as last time (b == 0) or not (b == 1).
+        Advantage == 1
+    When is deterministic encryption useful?
+    Messages chosen at RANDOM from large msg space, or messages are UNIQUE.
+        Encryptor should never encrypt same message twice.
+    "Deterministic CPA security".
+        Input messages must be distinct!
+        Previous attack is "illegal". Doesn't make it more secure.
+                                      Just a different "secure" definition.
+    CBC with <FIXED IV> is NOT deterministic CPA secure.
+        Adv asks for m0 = m1 = 0^n || 1^n
+            Gets back c1 == [FIV, E(k, 0^n xor FIV)]
+        Adv asks for m0 = 0^n, m1 = 1^n
+            Gets back c == [FIV, E(k, FIV)] OR          m0 (same as last time)
+            Gets back c == [FIV, E(k, 1^n xor FIV)]     m1 ("else" case)
+
+    How about COUNTER MODE WITH FIXED IV? Is THAT det. CPA secure?
+        Recall, CTR MODE:
+            msg XOR
+            F(k, FIV) || F(k, FIV + 1) || ... || F(k, FIV + L)
+            ==
+            Ciphertext
+    --> NO!!!! This degenerates to repeated "one time pad". (two time pad)
+
+How do we not mess up deterministic encryption?
+    Synthetic IV (SIV) ✔
+        Let (E,D) be CPA secure encryption. E(k,m; r) --> c
+            CPA security relies on randomness or nonces
+        Let F: K x M --> R be a secure PRF. r is an element of R.
+        E (det) ((k1,k2), m) = c
+            (derive randomness from F(k1,m), derive c = E(k2, m; r))
+
+        We get integrity for free!
+        "Determinisitic Authenticated Encryption" (DAE)
+    Just use a PRP: ✔  (better for shorter messages)
+        Let (E,D) be a secure PRP.
+        For m unique messages, Adv gets back "q random values".
+            Doesn't matter if b == 0 or b == 1.
+        This is Det CPA secure.
+
+    How to make a "wide" PRP?
+        (E,D) is PRP, operates on "n" bit long messages.
+        EME: a PRP on {0,1}^N for N >> n
+            Uses two keys, (K, L)
+            Message "x" broken up into blocks.
+                Encrypted in parallel. Xor with "padding func" from L.
+                Encrypted with key K.
+                Summed, encrypted, xor'd, encrypted again.
+    How to add integrity to PRP?
+        Add a bunch of zeroes to the end.
+        Integrity? Check zeroes exist after decryption.
+        This provides DAE!
+
+Tweakable Encryption
+    We wanna encrypt sectors on disk (4KB each).
+    Encryption cannot expand plaintext. (map to 4KB ciphertext)
+    Must use deterministic encryption, no integrity.
+    We HAVE to encrypt using a PRP.
+
+    Tweakable block cipher.
+    We want to make MANY PRPs from a single key.
+        E,D: K x T x X --> X
+    For every k and t,
+        E(k,t,.) is invertible function on X. Indistinguishable from random.
+    In disk example, USE THE SECTOR # AS THE TWEAK.
+
+    Secure tweakable block cipher:
+        b=1: Permutation set is random
+        b=0: k <- K, permutation set is E(k,t,.)
+
+        Adversary sends pairs of "ti, xi" (tweak + message)
+        Gets back several permutations. Are they random? Or are they tweaks?
+
+    Tweakable block cipher example:
+        "simple" one:
+            E(k,t,x) = E(E(k,t), x)     ✔ (but slow, so ✘)
+            (wanna encrypt N blocks? gotta call 2N E())
+        XTS: ✔
+            E((k1,k2), (t,i), x) = ...
+            N <-- E(k2, t)
+            m xor P(N, i) used as input to E(k1, .)
+            E(k1, . ) xor P(N,i) is the ciphertext
+            (the encryption of the tweak is REQUIRED)
+            (wanna encrypt N blocks? gotta call N+1 E())
+
+Format Preserving Encryption
+    Given a PRF, build a PRP on a small size.
+    I.e., map CC # to {0, ..., s-1}
+    Apply PRP
+    Map output BACK to a CC#
+
+    Luby-Rackoff!!! (Turns PRF into PRP)
+    Pad + Truncate can work for getting an output which is shorter
+    than a block size.
+
+
+
+
+
+
+
+
+

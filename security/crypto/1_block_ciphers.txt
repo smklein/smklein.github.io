@@ -29,7 +29,8 @@ Pseudo Random Permutation (PRP) defined over (K,X):
 
 "PRP": 3DES, AES, are of form "K x X --> X".
 
-Any PRP is ALSO a PRF. PRPs are a subset of PRFs. (sorta? Don't they need to be invertible)?
+Any PRP is ALSO a PRF. PRPs are a subset of PRFs. (sorta? Don't they need to be
+invertible)?
 
 Secure PRF
   F: K x X --> Y

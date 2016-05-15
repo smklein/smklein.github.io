@@ -1,0 +1,333 @@
+~~~ TRUSTED 3rd PARTY ~~~
+
+n users. Storing mutual keys is difficult!
+    -> Doesn't scale. O(n) keys PER user.
+
+How to improve?
+    -> Trusted Third Party (TTP).
+    -> Each user must remember only ONE secret key. (to talk to TTP).
+
+How can Alice and Bob use the TTP to talk?
+    -> Bob has Kb, Alice has Ka, each one can talk to TTP..
+    -> How can we make a mechanism secure against EAVESDROPPING ONLY?
+
+    A   --> "I want to talk to Bob" --> TTP
+    TTP --> "E(Ka, "A,B" || Kab)    --> A
+            ("Hey ALICE, here is how you talk to BOB")
+    TTP --> "E(Kb, "A,B" || Kab)    --> A
+            ("Hey ALICE, give this message (ticket) to BOB")
+    A   --> "E(Kb, "A,B" || Kab)    --> B
+            ("Hey BOB, talk to ME, ALICE")
+
+    Which ciphertexts are sent over the network?
+        E(Ka, "A,B" || Kab)
+        E(Kb, "A,B" || Kab)
+
+        -> CPA-secure: Eavesdropper learns nothing about Kab.
+
+    Mechanism LIKE this (with nonces, I think) is basis of Kerberos.
+
+    THIS PROTOCOL IS INSECURE DUE TO REPLAY ATTACKS.
+
+Can we make a key exchange protocol WITHOUT a trusted third party?
+
+YES, using the magic of ~~~public-key cryptography~~~
+
+Solutions:
+    Merkle (1974)
+    Diffie-Hellman (1976)
+    RSA (1977)
+
+~~~ MERKLE PUZZLES ~~~
+
+So, how do we do key exchange without TTP?
+    EAVESDROPPING ONLY. Assume no tampering (for now).
+
+Can we do this with symmetric crypto only?
+
+YES! Merkle Puzzles!
+    -> "puzzle" = problem that is difficult to solve
+    -> puzzle(P) = E(P, "message"); where first 96 bits of key P is zero.
+        -> the other 32 bits are either 0 or 1.
+    -> Try all 2^32 keys. Find which one decrypts the message.
+
+Alice: Prepare 2^32 puzzles.
+    -> Choose a random Pi from {0,1}^32.
+    -> Choose an x_i, k_i in {0,1}^128.
+    -> Set puzzle_i = E(0^96 || Pi, "Puzzle # x_i" || k_i)
+    -> Send all 2^32 puzzles to Bob
+Bob: Solve ONE of the puzzles.
+    -> Randomly pick a puzzle_i. Solve it. Get "x_j" and "k_j".
+    -> Bob knows if he solved the puzzle by checking for prefix "Puzzle #"
+    -> Send x_j to Alice.
+Alice:
+    -> Lookup the puzzle with number x_j. Use corresponding k_j as a secret.
+
+Alice did O(n) work for n puzzles.
+Bob did O(n) work to solve one puzzle.
+
+How much work would an eavesdropper need to do to break this crypto?
+    -> Attacker sees all puzzles, sees "x_j", but DOESN'T KNOW
+       WHICH PUZZLE IT CAME FROM.
+    -> O(n^2). O(n) work for each puzzle, and O(n) puzzles.
+    -> Bob needs to solve for 32 possible keys
+
+This shit is slow. It also requires a lot of space. Not really used in practice.
+Also requires quite a bit of network transmission.
+
+... also, alice doesn't know that BOB was the one that sent the message back.
+
+This "quadratic gap" between adversary work is the "best we know how to do".
+
+~~~ DIFFIE-HELLMAN PROTOCOL ~~~
+
+Still eavesdropping only! No injected messages, no tampered messages.
+
+Can we make an EXPONENTIAL GAP instead of a "QUADRATIC GAP" between
+participant / adversary work?
+
+YES.
+
+        Fix a Large Prime p (600 digits long!!! wow large) (2000 bits)
+        Fix an integer g in {1, ... , p}
+        (p,g) chosen once, fixed forever.
+    Alice:
+        -> Choose a random a in {1, ...., p-1}
+        -> Sends A = g^a (mod p) to Bob      ("^" actually means exponentiation)
+    Bob:
+        -> Sends B = g^b (mod p) to Alice
+    Alice and Bob:
+        -> Solve K_ab = g^(ab) (mod p)
+        -> For Alice, K_ab = B^a (mod p) = (g^b)^a. Can be done knowing g^b, a.
+        -> For Bob,   K_ab = A^b (mod p) = (g^a)^b
+
+This is actually pretty simple! "a", "b", randomly chosen, secret, known as
+powers. g^a, g^b traded. "a", "b" still secret. K_ab computable.
+
+Why is this secret?
+    -> Eavesdropper sees p, g, A = g^a, B = g^b
+    -> Can they compute g^(ab) (mod p) given this info???
+        -> If the prime p is n bits long, it can be solved in ~ O(n^(1/3))
+        -> "128 bit cipher key" ~= 3072 bit long modulus.
+
+Can we use a "different algebraic object", other than exponents and modulus,
+to make the "DH cracking function" harder than cubed root?
+
+YES. Elliptic Key Cryptography. More on this later (maybe).
+    -> Same general idea as DH though.
+
+DH IS INSECURE THOUGH
+    -> What?
+    -> Yeah, against active attacks. MiTM. Intercept messages!
+        -> Pretend to be "Bob" to Alice. Pretend to be "Alice" to Bob.
+
+The "Facebook idea".
+    -> Everyone knows their "a".
+    -> Everyone publicly posts their "g^a".
+    -> Bob wants in? "g^a" ^ b. Bam. Secret key.
+        -> This works for n = 2 parties.
+        -> "Joux" solved for n = 3.
+        -> n = 4, 5, 6... is not solved yet!!!!! Free Crypto Phd right here.
+
+~~~ PUBLIC KEY ENCRYPTION ~~~
+
+Still eavesdropping only.
+    -> Merkle puzzles? Quadratic gap. Slow AF.
+    -> DH? Exponential gap. Better.
+    -> What about Public Key Crypto?
+
+Public Key crypto
+    (E,D) algorithms, like symmetric crypto.
+    But keys come in PAIRS. Public Key, Secret Key!
+    G algorithm added. Generates key pair.
+    E(public key, m). D(secret key, c).
+
+Semantic Security.
+    Challenger gives pk (public) to adversary.
+    Adversary gives two messages (m0, m1) to challenger.
+    Challenger gives c <-- E(pk, mb).
+    CAN ADVERSARY GUESS IF B == 0 OR B == 1???
+    Adversary ALWAYS has "chosen plaintext attack", since public key is known.
+    IND-CPA. Indistinguishable under CHOSEN PLAINTEXT; adv can get any
+        encrypted ciphertext desired.
+
+How to establish shared secret?
+    Alice --> "I'm ALICE, here is my PUBLIC KEY" --> Bob
+        Bob chooses random 128-bit x.
+    Bob   --> "I'm BOB, here is c = E(Alice's public key, x) --> Alice
+        Alice gets x = D(secret key, c)
+    Now "x" is a shared secret between the two of them.
+
+Still vulnerable to MiTM.
+
+~~~ NUMBER THEORYYYYYY ~~~
+
+We need this shit for key exchange, digital signatures, and public key crypto.
+
+N denotes a "positive integer".
+P denotes a "prime".
+Z_N = {0,1,..., N-1}  (set of integers)
+    5 * 7 (mod 12) == 11. Alternative notation? "in Z_12".
+    5 - 7 in Z_12  == 10. (-2 + 12 == 10).
+gcd(x,y) is GREATEST COMMON DIVISOR of x,y.
+gcd(12,18) == 6.
+    For all x, y, there exists a,b s.t:
+        a*x + b*y = gcd(x,y)
+        a,b can be found with extended Euclid algorithm
+    If gcd(x,y) = 1, then x and y are relatively prime.
+
+Modular Inversion.
+    Inverse of 2? 1/2.
+    Inverse of x in Z_N is an element y in Z_N s.t. x*y = 1 in Z_N
+
+    If N is odd, inverse of 2 in Z_N is (N+1)/2.
+        -> 2 * (N + 1) / 2 = (N + 1) = 1 in Z_N.
+--> x in Z_N is invertible IFF gcd(x, N) = 1
+        -> there exists a * x + b * N = 1
+        -> a * x = 1 in Z_N.
+        -> x^-1 = a in Z_N.
+
+So we know what "Z_N" is. We know when an element is invertible in Z_N.
+"Z_N_*" is the set of invertible elements in Z_N.
+    All invertible elements are relatively prime to N.
+
+"Z_PRIME_*" = "Z_P", but without zero (since N is a prime!)
+"Z_12_*" = {1, 5, 7, 11}        All relatively prime to 12.
+
+a * x + b = 0 in Z_N
+x = -b * a^-1 in Z_N
+How to find a^-1 in Z_N? Use extended Euclid.
+
+~~~ FERMAT AND EULER ~~~
+
+Fermat's Theorem.
+    Let p be a prime.
+    Forall x in (Z_p_*): x^(p-1) = 1 in Z_p
+
+    Example: p = 5. 3^4 = 81 = 1 in Z_5.
+
+    x^(p-1) = 1
+    x^(p-2) * x = 1
+    x^(p-1) = x^(-1) in Z_p         -- another way to compute inverse. Slower
+                                       than Euclid's algorithm. Less general.
+
+Suppose we want to make a large random prime.
+    How about a 1024 bit prime?
+
+    1) Choose a rando 1024 bit long prime.
+    2) Test if 2^(p-1) = 1 in Z_p
+        If yes, output p and stop. Otherwise, try again.
+        --> NOT GUARANTEED TO BE A PRIME. But REALLY LIKELY.
+
+    This algo is really simple, but not the "best" way to do it.
+
+Theorem:
+    (Z_p_*) is a "CYCLIC GROUP", meaning
+        there exists a "g" in (Z_p_*) s.t.
+            {1, g, g^2, g^3, ..., g^(p-2)} = (Z_p_*)
+    This "g" is called a "generator" of Z_p_*
+
+    <g> is the "group generated by g".
+    "order" of g in Z_p_* is the size of <g>.
+        denoted ord_p(g).
+
+    ord_7(3) = ?
+        {1, 3^2, 3^3, 3^4, ...} mod 7
+        {1, 3, 2, 6, 4, 5}      (3^6 mod 6 is just 1 again)
+        Size of this set is SIX
+    ord_7(2) = ?
+        {1, 2, 4}
+        Order here is THREE.
+    ord_7(1) = 1.
+
+Theorem (LAGRANGE):
+    ord_p(g) always divides p-1     (with no remainder).
+
+Euler's Generalization of Fermat's theorem:
+    "phi" function = size of Z_N_*
+
+    phi(12) = |{1, 5, 7, 11}| = 4
+    FOR A PRIME, P:
+        phi(p) = p-1
+                (since EVERYTHING FROM 1 --> p-1 is relative prime to p)
+
+For p, q both primes:
+    For N = p * q,
+        phi(N) = N-p-q+1 = (p-1)(q-1)
+    (USEFUL FOR RSA)
+
+Theorem (another from Euler):
+    For all x in Z_N_*,
+        x^(phi(N)) = 1 in Z_N.
+
+~~~ MODULAR E'TH ROOTS ~~~
+
+We know how to solve modular LINEAR equations.
+    Problem:
+        a * x + b = 0 in Z_N.
+    Solution:
+        x = -b * a^-1 in Z_N
+But what about higher degree polynomials?
+    Let p be a prime. c is an element in Z_p.
+    Problems:
+        x^2 - c = 0 in Z_p
+        y^3 - c = 0 in Z_p
+        z^37 - c = 0 in Z_p
+    General:
+        x in Z_p, s.t. x^e = c in Z_p is the "e'th root" of c.
+
+    7^(1/3) = 6 in Z_11
+        Why? 6^3 (mod 11) = 216 (mod 11) = 7 (mod 11)
+    3^(1/2) = __ in Z_11
+        What number, when squared is 3? (mod 11)
+        Squares: 1, 4, 9, 16, 25, 36 <-- WINNER
+        ANSWER: 6
+    1^(1/3) = __ in Z_11
+        Cubes: 1, ...
+        ANSWER: 1
+    Some of these "e'th" roots don't exist.
+
+WHEN DOES c^(1/e) in Z_p EXIST????
+    Suppose gcd(e, p-1) = 1.        (THE EASY CASE)
+        Then for all c in Z_p_*, c^(1/e) exists in Z_p and is easy to find.
+    Proof:
+        (see section on "modular invertibility")
+        We know that e is invertible because it is relatively prime to p-1.
+        So e is invertible in Z_(p-1).
+            Let's call this inverse "d".
+            d = e^(-1) in Z_(p-1)
+        So we know d * e = 1 in Z_(p-1)
+        THUS
+            c^(1/e) = c^d in Z_p
+    Suppose e = 2. So the square roots case.
+        If p is an odd prime, then gcd(2, p-1) != 1
+    In Z_p_*, x --> x^2 is a "2-to-1" function.
+        Two inputs map to the same output.
+        Example
+            Z_11_*:
+                1^2 --> 1. 10^2 --> 1
+                2^2 --> 4. 9^2 --> 4
+                3^2 --> 9. 8^2 --> 9
+                4^2 --> 5. 7^2 --> 5
+                5^2 --> 3. 6^2 --> 3
+                etc.
+        x in Z_p is a "quadratic residue" (QR) if it has a square root in Z_p.
+            Ex, 1, 4, 9, 5, 3.  (SEE ABOVE, FOR Z_11).
+        How many QRs are there in Z_p, if p is an odd prime?
+            (p-1)/2 + 1
+            ^ WHY? HALF of these will be QRs (see example).
+              But also, "0" is a part of Z_p. So add one.
+
+    How can we tell if x is a QR?
+        IFF x^[(p-1)/2] = 1 in Z_p
+        This is intuitive if we plug in fermat's Thm:
+            Then x^(p-1) --> 1
+            So we get 1^(1/2) = {1, -1} in Z_p.
+                -> 1? QR. -1? Not QR.
+
+So how do we compute square roots mod p???
+    c^(1/2) = c^[(p+1)/ 4] in Z_p, for c in Z_p.
+
+
+
+

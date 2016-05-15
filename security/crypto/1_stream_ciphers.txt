@@ -132,7 +132,7 @@ Perfect Secrecy implied |K| >= |M|.
 
 ~~~ STREAM CIPHER.
 
-Repace "random" key by "pseudorandom" key.
+Replace "random" key by "pseudorandom" key.
 PRG: (Psueudo random generator)
   Function, G:{0,1}^s --> {0,1}^n, for n >> s
    (seed space to random number space).
