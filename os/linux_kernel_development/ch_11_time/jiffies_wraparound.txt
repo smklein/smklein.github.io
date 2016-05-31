@@ -1,0 +1,76 @@
+~~~ BACKGROUND
+
+"Jiffies" is the variable in the linux kernel which defines the number of
+timer ticks since the system booted. This value has a 64-bit version
+(jiffies_64), but "jiffies" itself is defined as an "unsinged long", typically
+pointing at the bottom 32 bits of jiffies_64.
+
+~~~ WHAT ABOUT OVERFLOW?
+
+Since "jiffies" is 32 bits, let's try to figure out how often it will overflow.
+If we assume the timer interrupt fires every 1000Hz, then "jiffies" increments
+once every millisecond.
+
+(2 ** 32 ticks) / (1000 ticks / second) = 4294967.296 seconds
+4294967.296 seconds = 49.7 days to actually overflow
+
+~~~ RIGHT, BUT DON'T WE STILL NEED TO WORRY ABOUT OVERFLOW?
+
+Yeah, we do. What if we're making a time comparison that overlaps this ~50 day
+boundary?
+
+The example provided by Robert Love was roughly the following:
+
+  unsigned long timeout = jiffies + HZ/2; /* Timeout in 0.5 s */
+  /* Do work */
+  if (timeout < jiffies) {
+    /* We took too long */
+  }
+
+The problem arises when "timeout" and "jiffies" are large enough that "jiffies"
+can wrap around to 0. When this happens, the timeout-handling code will not
+occur, even though it should.
+
+~~~ WHAT'S THE SOLUTION?
+
+The solution provided by the Linux kernel is the following:
+
+  #define time_before(unknown, known) ((long)(unknown) - (long)(known) < 0)
+  unsigned long timeout = jiffies + HZ/2; /* Timeout in 0.5 s */
+  /* Do work */
+  if (time_before(timeout, jiffies)) {
+    /* We took too long */
+  }
+
+"Linux Kernel Development" basically says "ah, this works, try out a few
+values".
+
+I'll try to do a more in-depth explanation.
+
+~~~ WHAT'S HAPPENING HERE?
+
+The 32-bit unsigned values (jiffies and timeout) are converted to signed
+integers and compared with zero.
+
+In the really simple (non-overflowing) case, this behavior is obvious. The
+numbers are just compared.
+
+However, things get interesting approaching certain numbers, such as:
+LARGEST_SIGNED    2^30-1: The largest positive signed number, and
+LARGEST_UNSIGNED  2^31-1: The largest positive unsigned number
+
+If we suppose "timeout" = LARGEST_SIGNED, then "jiffies" can either be
+smaller or larger than this value (or the same).
+
+  time_before(timeout, jiffies (smaller)) --> LARGEST_SIGNED - SMALLER SIGNED,
+  which is positive. This is NOT less than zero, so we DO NOT timeout.
+
+  time_before(timeout, jiffies (larger)) --> LARGEST_SIGNED - NEGATIVE_NUMBER,
+  which will force the "LARGEST_SIGNED" number to add a small positive number to
+  itself, causing it to become negative. This IS less than zero, so it causes
+  the timeout.
+
+TODO(finish article)
+
+
+
