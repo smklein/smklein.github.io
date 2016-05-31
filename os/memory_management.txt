@@ -1,0 +1,195 @@
+Memory Hierarchy:
+  Small number of REALLY FAST bits (registers)
+  Large number of really slow bits (disk)
+
+OS memory manager deals with this
+
+What about no VM? What about only using physical memory?
+    OS can live in RAM or ROM (at top of memory), or both.
+    "BIOS" -- Basic Input Output System. Portion of OS in ROM (device drivers)
+    Typically only one process can run at a time.
+
+    Hard for unrelated programs to be running at the same time.
+    This sort of assumes programs are not necessarily PIEs.
+
+    Context switching involves saving all of memory. "swapping".
+    Issue stems from referencing absolute physical memory.
+    Programs can reference private set of addresses. "static relocation".
+        Loaded at addr 16,384? Add that constant to all memory refs.
+        Slows down loading! Also requires extra information (which
+        instructions should be relocated??? What's an address vs
+        an immediate???)
+
+    Direct memory addressing is making a comeback in embedded systems.
+
+    BIG PROBLEM: Easy for user programs to trash address space.
+
+"ADDRESS SPACE" -- set of addresses that process can use. Dividing up
+    physical memory into chunks for each program.
+
+"DYNAMIC RELOCATION" -- Map address space into physical memory.
+    Uses "Base" and "Limit" registers.
+    Base == address where program begins.
+    Limit == length of program
+
+    Accesses to memory can be protected by hardware.
+    CPU automatically adds base value to memory instructions.
+    Can only be modified by OS on many systems.
+        CDC 6600 did this full implementation
+        Intel's 8088 did not; didn't even have a limit reg :/
+
+    Arguably slows each memory reference; addition + comparison necessary.
+
+Swapping may still be necessary. For size reasons, what if processes need more
+RAM than fits into physical memory?
+
+SWAPPING: Bringing in each process in its entirety, running it for a while,
+and then dumping the entire thing back to disk for a while.
+    EX: Photoshop open, but not "actively running"? Save 500 MB RAM
+    by dumping it onto disk. Re-read it into RAM if activated again.
+
+Still using physical memory??? We can swap processes in an out.
+    May leave GAPS in physical memory. Think Malloc, but for entire
+    address space between processes.
+    May require "MEMORY COMPACTION" -- reorganizing memory to make room
+    for larger programs.
+
+    Physical memory makes it hard for heaps to grow. How much space should
+    be provided in advance??? Cannot grow --> forced compaction. SLOW.
+        Allocate a lil' extra memory when swapping/moving?
+    Swapping to disk? Only swap memory in use!!!
+
+How can my OS Possibly Manage my Free Memory space?????
+    BITMAPS
+        Divide memory into allocation units (usually pages, I assume?)
+        You can keep track of allocations in a really long array
+            (1 --> "used", 0 --> "free").
+        Kinda hard to search for "Free space of size n bits"
+    LINKED LISTS
+        You can keep track of allocations in a list!
+            (P/0/5) --> (H/5/3) --> (P/8/6)
+                There is a process from 0 --> 0 + 5
+                There is a hole (free memory) from 5 --> 5 + 3
+                There is a process from 8 --> 8 + 6
+        Requires explicit coalescing.
+        LOTS like malloc.
+        How to find free space?
+            First fit: Find first thing that fits.
+            Next fit: First fit, but update starting point each time.
+            Best fit: Literally look for smallest adequate hole
+            Pretty good fit: Sean's super awesome custom algorithm (lol 213)
+            Using "segment lists" is pretty dece idea.
+                Separate lists for more common sizes.
+
+VIRTUAL MEMORY:
+    Processes can run when only PARTIALLY in memory.
+    Each program has own address space.
+    Made of PAGES (contiguous range of addresses).
+    Mapped to physical memory -- but not all pages need to be mapped
+        at the same time!
+    Hardware helps here.
+        Prog reference vm page which maps to pa page?
+            Go ahead!
+        Prog reference vm page which maps to NOTHING?
+            PAGE FAULT. OS can fix things (or kill shit)
+
+    Relies on MEMORY MANAGEMENT UNIT (mmu).
+    CPU requests memory? Do so through MMU. MMU accesses bus.
+
+    PAGE FRAME: Physical memory units.
+
+    Suppose we access address "0" in virtual memory.
+        -> va in page 0
+        -> "page frame" could be mapped to something like "page frame" N.
+            N is just a slot in physical memory.
+        ACTUAL MEMORY doesn't know jack shit about virtual memory.
+        It just sees a request for accessing page frame N.
+
+    "Present / absent bit" is a big deal in page management.
+    Reference unmapped addr? Page fault.
+        OS has option to evict pages (send them to disk).
+            Should be minimally used! Write to disk (if not already there).
+        Fetch new page from disk, change map, restart trapped instruction.
+
+    Virtual Addresses split into:
+        [page number] || [offset into page]
+        example: 16 bit address? 4 bit page #, 12 bit offset.
+            Allows 2^4 (16) separate pages
+            Allows for 2^12 (4KB) page size
+    Page number used as index into PAGE TABLE.
+
+    PAGE TABLE: Maps virtual page to page frames (va --> pa)
+
+    VIRTUAL ADDRESS maps to PAGE TABLE ENTRY inside PAGE TABLE.
+    This PTE maps to a PHYSICAL ADDRESS.
+
+    PAGE TABLE ENTRY (PTE) contains:
+        Page Frame #
+        Protection bits         (read/write/execute permissions)
+        Present/Absent bit      (0 means page is not in memory)
+        Modified bit            (page is "dirty" -- different from disk)
+        Referenced bit          (... maybe don't evict me?? I'm being used)
+        Caching disabled bit    (GO DIRECTLY TO MEMORY. Device drivers!)
+        A couple extra bits for fun (save for a rainy day)
+
+    "Hey, the disk address holding the page isn't in the PTE!"
+        Good catch. PTE only hold info needed by HARDWARE.
+        OS manages this info -- but not in Page Table directly.
+
+Big issues:
+
+1) Va --> PA mapping needs to be FAST
+2) if va space is large, page table is REALLY BIG.
+
+ISSUE #1: GOTTA GO FAST (WHEN ACCESSING MEMORY)
+    To reference memory? Gotta reference page table two. DOUBLING memory
+    accesses? That would be crap.
+
+    Most programs reference a small number of pages many times.
+    Use special hardware to map va --> pa.
+    "TLB: TRANSLATION LOOKASIDE BUFFER"
+        Inside MMU
+        Contains similar info to PTE, but also include virtual page #
+
+  (CPU to MMU): "Incoming address access, va!"
+  (MMU to TLB): "Hey, do you have va?"
+         (TLB): (In parallel) *checks self's "virtual page #"s * (uses hw)
+         (TLB): (If found, right protection): "here's the page frame!"
+         (TLB): (If found, wrong protection): "PROTECTION FAULT!"
+  (TLB to MMU): (If not found): "uh oh. Do a page table lookup"
+     (MMU/TLB): Does page table lookup, evicts an old page from TLB.
+                Replaced evicted page with new page.
+
+    What happened to the evicted page?
+        -> Update the "dirty bit" in the PTE entry with the one in the TLB
+            (the TLB's copy is more recent)
+    How do we put the new page in the TLB?
+        -> Just copy it directly from the PTE
+
+    SOFTWARE TLB MANAGEMENT
+        "What? I thought all this stuff was done by the hw"
+            -> True for some machines. But some RISC machines
+               generate a TLB fault. Asks the OS to deal with shit.
+               OS needs to emulate hw -- and QUICKLY, since these happen often
+
+        OS can try to be clever. Pre-load TLB.
+    Just to recap:
+        SOFT MISS: TLB miss, but page is in memory.
+        HARD MISS: Page is not in memory (and not in TLB). Requires disk.
+        PAGE TABLE WALK: Looking up mapping in PT hierarchy.
+
+        MINOR PAGE FAULT: Page in memory, but not in THIS process' page table.
+                          Someone else brought it in from disk.
+                          No need to re-access disk! Just update PT.
+        MAJOR PAGE FAULT: Page is NOT in memory. Access disk to find it.
+        SEGMENTATION FAULT: Page is not in memory, not on disk.
+                            Usually causes death of program.
+
+
+
+
+
+
+
+
+
