@@ -1,0 +1,275 @@
+~~~ LOG STRUCTURE FILE SYSTEMS (LFS).
+~~~ A NEW FILESYSTEM? WHY?
+
+Well, first off, not really new. It came out in the early 90s.
+
+Why? That's a good question. LFS was inspired by a few key points:
+
+- Systems have a ton of memory these days, especially compared to systems
+  of old. This means that reads are hitting the cache way more frequently.
+  As a result, WRITES actually go out to disk, but READS hitting disk are
+  somewhat rare.
+- For hard drives, random I/O sucks, but sequential I/O is good.
+- Earlier filesystems sucked at writing to small files, causing
+  many short seeks.
+
+LFS focused on nailing the performance of WRITES, and it is structured
+to take advantage of the sequential bandwidth of a disk.
+
+LFS buffers all updates (data and metadata) into MEMORY SEGMENTS,
+which it dumps to disk. Also, LFS "never" overwrites existing data -- instead,
+it always writes data to new locations.
+
+  > This obviously isn't 100% true. LFS also uses garbage collection to
+    clean up "dead data", and re-writes to those locations. But LFS
+    only writes segments to logically free spots on disk.
+
+~~~ WHAT DOES IT LOOK LIKE TO WRITE A FILE TO DISK?
+
+A file will consists of two parts: Data and metadata.
+
+Let's suppose the data of the file is written to disk address "0".
+The file metadata, called the "inode" can be written to the
+following disk address, which in this case is "1". Simple.
+
+  > The inode is a necessary component to keep track of where files are
+    within a filesystem, among other housekeeping tasks.
+
+The key idea here is "data then inode", specifically, sequentially
+right next to each other.
+
+~~~ AND THAT GUARANTEES GOOD PERFORMANCE ON DISKS?
+
+No. Writing sequentially to disk is not enough. If you write to disk address
+"0", wait a fraction of a second, and then write to disk address "1", the
+rotational head of the disk will have moved beyond address "1". To actually
+accomplish the write, the disk head will need to make a (nearly) 360 degree
+rotation and come back to address 1, incurring the full rotationally latency.
+
+~~~ UH OH. HOW DO WE AVOID THIS?
+
+Easy. BUFFER WRITES, and issue a LARGE NUMBER OF CONTIGUOUS WRITES AT ONCE,
+aka "ONE LARGE WRITE".
+
+LFS accomplishes this by keeping track of large "segments" in memory, and
+writing them out to disk in one unit. With large enough segments
+continually being written, the disk achieves nearly peak transfer rate.
+
+~~~ CAN I SEE AN EXAMPLE OF A COUPLE FILES IN MEMORY?
+
+Sure.
+File 1: D[inode j, blocks 0,1,2,3]
+File 2: D[inode k, blocks 0]
+
+A0      A1      A2      A3      A4       A5      A6
+D[j,0]  D[j,1]  D[j,2]  D[j,3]  INODE j  D[k,0]  INODE k
+                                0->A0            0->A5
+                                1->A1
+                                2->A2
+                                3->A3
+
+~~~ WHAT ARE INODES USED FOR?
+
+They're used to find files, and tell the system information about files
+stored on disk. See the picture above? Inode "j" corresponds to a file, and
+it contains information about which disk blocks contain the file contents.
+
+~~~ HOW DO YOU FIND THE INODES?
+
+First let's look at how some other filesystems solve this problem.
+
+OLD UNIX FS:
+  > Contains an "Inode array" at a fixed location in the disk.
+    If you have inode "N", then index into the table (spot N), and
+    the inode will be there!
+
+FFS (Fast Filesystem):
+  > Similar to the old unix FS, but the inode table is actually
+    split into chunks (multiple smaller tables) distributed around each cylinder
+    group. This requires a little more info, but is generally the same idea;
+    however it achieves slightly better performance.
+
+~~~ OKAY, SO DOES LFS USE A FIXED INODE TABLE SOMEWHERE?
+
+No. We're placing inodes after our data, remember? Also, we won't be
+able to "update" inodes, since LFS "only writes segments to free parts of the
+disk".
+
+~~~ PHOOEY. WHO TRACKS THE INODES?
+
+The "Inode Map", also known as the "imap".
+This map takes an inode number as an input, and outputs a disk address
+of the MOST RECENT inode.
+
+If you update an inode, then you need to update the imap to point to the
+new inode.
+
+~~~ WHERE IS THE IMAP STORED?
+
+Well, if we followed the old approach of "a fixed spot on disk", then
+performance would suffer -- updates would require jumping back
+to a fixed spot, messing up the disk head.
+
+Instead, CHUNKS of the imap are placed at the end of segments, and the imap
+points to inodes contained within the segment being written.
+
+~~~ UM... HOW DO WE FIND THE IMAP, NOW THAT IT'S SPREAD INTO CHUNKS?
+
+Yeah, at the end of the day, we need to used SOME fixed location. We just
+want to avoid updating it frequently, as much as possible. Generally, imaps
+are kept in memory, but they must persist on disk SOMEWHERE...
+
+In comes the "checkpoint region (CR)", a location on disk containing pointers
+to the live inode maps.
+
+The CR is only updated periodically (think multiple seconds -- a very long
+time in the computing world).
+
+So here's what the world looks like on boot:
+
+  > BOOT
+  > Read CR, learn location of imap fragments.
+  > Read imap fragments into memory.
+  > Now we can lookup inode locations by inode number. We're good to go!
+
+~~~ WHAT ABOUT DIRECTORIES?
+
+Directories are actually pretty simple. They contain pairs of
+"File name" --> "File inode number", and they otherwise just look
+like normal files, which happen to have this pair as their contents.
+
+To look up a file "foo" in a directory with inode "d",
+> Read imap to find inode "d", at a disk address.
+> Read the directory inode "d" from disk.
+  > Read the directory inode to understand where the directory contents are.
+> Read the directory contents.
+  > Look up file "foo" in the directory. This shows inode "k".
+> Look up inode "k" in the imap.
+> Read inode "k"
+  > Read the inode to see where the contents of "foo" exist on disk.
+> Read "foo"'s contents.
+
+~~~ WOW SO MANY READS.
+
+Yeah, well, this stuff should be cached in memory right? Ideally that'll
+make things less painful.
+
+~~~ WHY DOES THE DIRECTORY POINT TO THE INODE NUMBER? COULDN'T WE SKIP A READ
+    BY POINTING TO THE INODE ADDRESS?
+
+This would lead to the "recursive update problem".
+
+If an inode moves, then a directory pointing to the inode will need to be
+updated.
+
+Then, when THAT directory is updated (because the LFS writes to new spots,
+rather than updating in place), its PARENT directory will need to be updated.
+
+And THAT parent directory will need to be updated... etc. All the way up to the
+root.
+
+Just point to inode numbers. Those don't change on writes, and only the inode
+itself (and the imap) need to be updated -- directories won't need to change.
+
+~~~ ALRIGHT, I GOTTA ASK. HOW DO WE NOT RUN OUT OF SPACE? WE KEEP WRITING
+    TO NEW SPOTS ON DISK. THAT HAS TO RUN OUT.
+
+Garbage Collection!
+
+LFS repeatedly writes the latest version of a file to disk.
+Older versions of the file will exist, but they are logically "garbage", since
+they aren't the latest version.
+
+It is possible for either data or inodes to be garbage on disk.
+
+Let's suppose we can identify when data / inodes are "dead" or "live".
+
+To do GC, we read a segment from disk into memory, delete all the "dead" blocks,
+and re-write the "live" blocks back to disk (as a part of a more compact
+segment).
+
+~~~ WHAT NEEDS TO CHANGE DURING COMPACTION?
+
+Let's recap "what points to what".
+
+- Inodes point to data blocks.
+  If data blocks are relocated during compaction, inodes need to be re-written.
+- Directories point to inode #s.
+  If inodes are moved, then the directory doesn't need to be re-written.
+  It's going to use the imap!
+- ANY inode relocate? The imap must be updated.
+
+So, to summarize,
+If a data block moves, the corresponding inode must be udpated.
+If an inode moves, the imap must be updated.
+
+Fortunately, these will (generally?) live in the same segment, so updating
+should be possible in memory during compaction.
+
+~~~ HOW DO WE DETERMINE LIVELINESS?
+
+LFS uses a "Segment Summary (SS) Block". This block, which sits at the start
+of segments, records the corresponding
+  1) Inode #, and
+  2) Offset in the file
+of every data block in the segment.
+
+This is enough information to look up the inode from the imap, and find
+the latest version of the block.
+
+If it's the same as the block in the current segment, then the data block is
+live.
+
+If the imap --> inode --> block points to a DIFFERENT data block (or the offset
+doesn't fit in the file, because it was truncated), then the block is DEAD, and
+can be garbage collected.
+
+IMPORTANT: The DISK ADDRESS is being compared, NOT THE CONTENTS OF THE BLOCK,
+so it doesn't matter if the "new data" happens to be the same as an old version.
+
+(optimization)
+Some shortcuts can be taken by LFS, like storing a "version number" in the imap
+for inodes that have been deleted. This prevents the need to walk through the
+inode to find the block number -- the lookup process can short circuit at the
+"imap" lookup stage.
+
+~~~ WHEN SHOULD THE CLEANER RUN? WHICH BLOCKS SHOULD BE CLEANED?
+
+These questions are not easy -- especially the "which blocks should be cleaned"
+one.
+
+Historically, researchers have tried to distinguish between "hot" and "cold"
+segments, distinguishing between segments that are written often (hot) or
+stable (cold). Originally, researchers thought that cleaning "cold" segments
+would be a good idea, but more recent approaches have a different opinion.
+
+~~~ WHAT HAPPENS IF THE SYSTEM CRASHES WHILE LFS IS WRITING TO DISK?
+
+LFS could crash at one of two times:
+1) Writing to the Checkpoint Region (storing imap info).
+   > LFS keeps two CRs, and updates them alternately. The CR
+     writes occur by outputting a header (timestamped), body, and
+     footer (timestamped). The CR validity can be checked by comparing the
+     timestamps -- this also reveals the most recent valid CR.
+2) Writing a segment.
+   > LFS writes the CR every 30 seconds. LFS can read this region, recover
+     imap chunks, and regain a (slightly older) view of the filesystem which is
+     still valid.
+
+However, this has been improved historically. A log can be kept in the CR,
+detailing the latest updates, and LFS can attempt to rebuild the latest
+segments which had not been saved in the 30 second interval. For more info,
+refer to Rosenblum's dissertation.
+
+~~~ CAN'T GC STEP ON THE TOES OF THE CR IMAP CHUNKS?
+
+(not addressed in paper)
+This seems possible, right? If we consider an old block to be "free", due
+to the actions of the garbage collector, couldn't it be re-written before the
+next roll of the CR?
+
+This seems plausible. However, an in-memory marking of these regions as
+"free" could be delayed until after the CR write. This would avoid any integrity
+issues caused by races.
+
+
