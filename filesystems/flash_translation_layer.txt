@@ -1,0 +1,113 @@
+Major reference:
+https://flashdba.com/2014/09/17/understanding-flash-the-flash-translation-layer/
+
+~~~ WHAT'S THE FLASH TRANSLATION LAYER?
+
+Let's back up a sec. Real far. All the way to HDDs.
+
+If I access "address 0" on a hard drive, what does that mean?
+Note, I'm NOT saying "address 0" in memory, but rather, some address in a block
+on disk?
+
+The term "Logical Block Addressing" describes the indirection used to match
+"logical address N" (LBA) with some physical address (PBA). This marked a
+departure from the previous "cylinder/head/sector" (CHS) specification, which
+required hardware-specific specifications of "where to read/write" from disk.
+
+HDD device drivers, responsible for managing the mapping from LBA --> PBA, COULD
+make the mappings random. However, that would be foolish. In reality, the blocks
+are lined up to optimize "large sequential reads/write" performance.
+
+~~~ WHAT DOES THIS HAVE TO DO WITH THE FTL?
+
+The FTL plays a similar role to the HDD device drivers. It is responsible for
+managing the mapping of LBA --> PBA, among other responsibilities.
+
+~~~ SO THE FTL IS IDENTICAL TO THE HDD?
+
+No! SSDs have different requirements than HDDs.
+
+SSDs contain "blocks", which internally contain "pages". Although reads and
+writes operate on "pages", erasures operate on "blocks".
+
+~~~ ERASURES?
+
+Yeah. When you get a new SSD, it's full of empty pages. However, as soon as you
+start writing to your SSD, things get weird.
+
+You can flip bits ON in an SSD, but not OFF (without an erasure).
+   (Technically, it's the other way around, but that shouldn't matter. Really,
+    this just means that pages in a block are "write once" after an erasure, and
+    they must be emptied via an "erase" to write again.)
+
+This means you can write to multiple (DISTINCE) "pages" in a "block" by issuing:
+  > WRITE WRITE WRITE WRITE WRITE
+However, as soon as you want to re-write (even just ONE) page, you MUST erase
+then entire block and re-write it.
+
+~~~ THIS IMPACTS THE FTL?
+
+Yeah, quite a bit! Updating pages by re-writing to the same location SUCKS.
+It requires that erasure step. Boo!
+
+The FTL can use a logical block addressing scheme to write the page PHYSICALLY
+somewhere else, but update the "LBA-->PBA" mapping so future reads will be
+diverted to the latest page.
+
+~~~ AH, I SEE! DOESN'T THAT LEAVE AROUND "OLD PAGES" ON THE SSD THOUGH?
+
+Yeah, and that's why the FTL also needs to manage garbage collection.
+Since we aren't erasing these stale pages at the time they become stale, we
+need to keep track of them and collect them later. The FTL is responsible for
+1) Finding blocks which have multiple stale pages
+2) Relocating the remaining live pages of the block to a new block (or blocks)
+3) Remapping future accesses to those pages, by changing the LBA --> PBA mapping
+4) Erasing the "fully stale" block.
+
+This is an interesting issue. The "number of live pages to be re-written" has a
+HUGE impact on SSD performance, as does the timing of this garbage collection:
+when should it happen?
+
+~~~ WHAT IF WE WAITED TOO LONG TO DO GARBAGE COLLECTION?
+
+We could potentially encounter a situation where we start running out of "free"
+pages on our SSD, and instead are full of "used" and "stale" pages. How would we
+relocate the "stale" pages? The honest answer is that garbage collection would
+be drastically slowed, using whatever free pages remain, and regular SSD
+performance would halt.
+
+To avoid this situation, FTLs usually use "over-provisioning": They see that the
+SSD has PHYSICALLY "N GB", but they only allow access to LOGICALLY "N - M GB".
+This provides M GB of buffer space that can be used to remap stale pages and do
+garbage collection.
+
+~~~ THAT'S ALL THE FTL IS RESPONSIBLE FOR MANAGING?
+
+No, there is one more major issue. Unfortunately, NAND flash has a tendency to
+wear out if it is erased in the same physical spot multiple times.
+
+As a solution, the same logical block addressing tricks can be used. Here,
+they're called "Wear Levelling", which is a technique that ensures:
+1) From the OS's perspective, the LBA of a page looks the same...
+2) From the flash's perspective, the PBA of a page is not re-used heavily.
+
+The goal of wear levelling is to distribute erasures and re-writes evenly across
+the SSD.
+
+~~~ WOW, THE SSD IS RESPONSIBLE FOR A LOT OF WRITES THAT WEREN'T REQUESTED BY
+    THE OS...
+
+Yeah, and this concept has a term known as "write amplification": it represents
+the fraction of data ACTUALLY written to flash / data REQUESTED to be written by
+the host.
+
+The FTL tries to avoid running out of free pages, minimize wear levelling, AND
+minimize write amplification as much as possible.
+
+~~~ WHERE DOES THE FTL LIVE THOUGH?
+
+It can exist in one of two places:
+1) On the SSD device, in the firmware.
+2) On your host, in a driver.
+
+However, generally, option (1) seems to be more common.
