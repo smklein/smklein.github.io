@@ -43,8 +43,17 @@ and manually providing links to each one that you support.
 This is possible, but forgetting about even one architecture leaves your
 userbase fragmented. Additionally, new architectures will force you to port
 your code and completely recompile all binaries.
-Lastly, if you ship a binary to user A, and that user wants to send the binary
+If you ship a binary to user A, and that user wants to send the binary
 to user B (offline), then the architectures MUST match.
+
+There is also a pivotal security concern here! If you decide that machine
+instruction "foobar" is unsafe on architecture X, how can you stop these
+binaries from compromising your machine? Once code has been compiled, it is
+extremely difficult to modify instructions. Thus, for a vanilla compiler,
+preventing "foobar" from executing means requiring the toolchain to recompile
+its binaries. (Admittedly, a validation technique could be used to identify
+binaries which contain the instruction "foobar", but this would still not
+provide a path for them to execute safely).
 
 ~~~ HRM... OKAY, I SEE THE PROBLEM. HOW DOES PNACL SOLVE THIS?
 

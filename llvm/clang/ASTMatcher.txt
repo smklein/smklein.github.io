@@ -1,0 +1,33 @@
+~~~ REFERENCING ~~~
+
+http://clang.llvm.org/docs/LibASTMatchersReference.html
+
+LibASTMathcers provides a DSL for accessing Clang's AST. It's in C++.
+Each subsequent match makes the match more specific.
+
+ASTMatchers can do a lot of the same things that clang "Visitors" can do
+(see FrontendActions for examples of visitors), but they are significantly
+more readable and condensed.
+
+~~~ EXAMPLE ~~~
+
+Wanna match all class, struct, or union declarations?
+    recordDecl()
+Wanna narrow down to those with the name "Foo"?
+    recordDecl(hasName("Foo"))
+Wanna add an additional constraint (akin to "allOf") that the class has to be
+derived from Bar?
+    recordDecl(hasName("Foo"), isDerivedFrom("Bar"))
+
+~~~ TYPES OF NODES ~~~
+
+Node Matchers: Allow finding a specific kind of node
+    For example "functionDecl", or "callExpr", or "cxxNullPtrLiteralExpr", or
+    "autoType", etc... Generally, lets you select a Decl, stmt, Type, etc.
+
+Narrowing Matchers: Match certain attributes. Narrow down selection of nodes.
+    "isConst", "equals", "anyOf", "isInteger", etc.
+
+AST Traversal Matchers: Specify relationship to other nodes that are reachable
+    from current node. "forEach", "pointee", "hasArgument", "hasDeclaration".
+

@@ -1,0 +1,28 @@
+Clang Plugins make it possible to add additional actions (or checks) during
+Compilation.
+
+A really common use of Clang Plugins is to raise additional warnings / linting
+regarding code, to provide a more informative compiler.
+
+~~~ WHAT DO CLANG PLUGINS DO?
+
+They run "FrontendActions" over code.
+
+See "FrontendActions.txt" for more info.
+
+~~~ WHAT IF I WANT TO RUN MY ANALYSIS OUTSIDE CLANG?
+
+Try using LibTooling. This also gives you the ability to modify your
+code via refactoring. LibTooling just provides the basis for a standalone tool.
+
+Either way, with both Plugins and LibTooling, ultimately a "ClangTool" is
+constructed (based on the compilation / source files as inputs) and the
+Tool is run with a "FrontendAction".
+
+To commence refactoring, the global variable "rewriter" is used to dump the
+new source code into a new file.
+
+
+
+
+

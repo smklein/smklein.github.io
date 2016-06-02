@@ -111,4 +111,15 @@ named "REGISTER". It must reappear in the "andw" line for the test to pass!
 For more info on FileCheck, look at the LLVM documentation.
 (or look in the LLVM codebase -- there are tons of examples!)
 
+~~~ HEY, WHY DO I KEEP SEEING "not" AT THE START OF SOME "RUN" LINES?
+
+That means that the command is expected to return an error.
+
+If want to check that a compiler error is thrown, and I run:
+    ; RUN: %clang %s ... | FileCheck %s
+The result of the compiler invocation will return "1", and propagate that
+error, failing the test!
+
+Instead, this should be used:
+    ; RUN: not %clang %s ... | FileCheck %s
 

@@ -18,7 +18,7 @@ Random time to avoid "starvation" (running indefinitely, no progress).
 
   int status[N]
   semaphore mutex = 1;
-  semaphore fork_access_tokens[N];
+  semaphore fork_access_tokens[N];  /* One per philosopher */
 
   try_to_pick_up_forks(int philosopher_num) {   /* only if hungry! */
     if (status[philosopher_num] == HUNGRY &&
@@ -33,7 +33,8 @@ Random time to avoid "starvation" (running indefinitely, no progress).
     status[philosopher_num] = HUNGRY
     try_to_pick_up_forks(philosopher_num)
     GLOBAL UNLOCK
-    down(&fork_access_token)    /* BLOCK if we didn't get access earlier! */
+    /* BLOCK if we didn't get access earlier! */
+    down(&fork_access_token[philosopher_num])
   }
 
   put_forks(int philosopher_num) {

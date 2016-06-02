@@ -1,0 +1,88 @@
+https://kevinaboos.wordpress.com/2013/07/23/clang-tutorial-part-ii-libtooling-example/
+
+~~~ WHAT ARE WE TRYING TO DO?
+
+Change clang to find a specific AST node with a specified name.
+
+~~~ WHY?
+
+As a toy example. if we can do this, we can (probably) extract arbitrary
+information from a compiled program's AST.
+
+We'll need a few tools to make this happen: namely, the RecursiveASTVisitor and
+the ASTFrontendActions.
+
+~~~ WHAT'S AN "ASTFrontendAction".
+
+It's an abstract class that allows execution of the action.
+
+    FE Action has "CreateASTConsumer" method, which is typically implemented
+    to provide a custom "consumer" which acts on the AST.
+
+    This is admittedly kind of just plumbing.
+
+We can invoke our analyzer using something like this:
+    CALL: clang::tooling::runToolOnCode( new FooASTFrontendAction )
+
+~~~ WHAT'S AN "ASTConsumer"?
+
+It's an abstact class that allows "Handling" of the AST.
+
+    It "consumes" the AST, and is called when certain AST items are parsed.
+
+    For example, "HandleTopLevelDecl" is called when clang sees top-level
+    declarations.
+
+    Implementing this method (in a custom ASTConsumer) allows clang to react to
+    newly declared global variables, functions, etc.
+
+CAVEAT WARNING
+
+    HandleTopLevelDecl is called EACH TIME a new Decl is parsed.
+    This means you cannot access ANYTHING defined after the declaration
+    currently being parsed.
+
+    This is potentially bad news bears, depending on your use case.
+
+~~~ HUH. HOW CAN WE ACCESS EVERYTHING AT ONCE?
+
+Try implementing the "HandleTranslationUnit" function in the ASTConsumer.
+
+This function is only called after the ENTIRE source file has been parsed.
+
+Typically, "HandleTranslationUnit" is paired with a RecursiveASTVisitor.
+
+~~~ HOW DO WE USE "RecursiveASTVisitor"?
+
+Make a new visitor class which inherits from "RecursiveASTVisitor".
+
+Implement "VisitNodeType(NodeType *)" methods.
+Many are defined.
+
+    In our case, try implementing:
+        bool VisitCXXRecordDecl(CXXRecordDecl *Declaration){}
+
+    Here, we can print the name of the AST node to show which nodes
+    are being visited.
+
+    The return value indicates if we want the visitation to proceed.
+
+    There are many other fun visit node types, like
+    "VisitFunctionDecl", and "VisitStmt". Try them out!
+
+~~~ CAN WE RECAP?
+
+Sure. I'll use shorthand to keep things simple:
+From wherever you want to call the analyzer:
+    CALL: clang::tooling::runToolOnCode( new ASTFrontendAction )
+    FooASTFrontendAction has "CreateASTConsumer" method, which returns BarASTConsumer.
+    BarASTConsumer can "handle" different parts of AST.
+        The most popular thing to handle is the "TranslationUnit", which means
+        "interpret the entire source file at once".
+    BarASTConsumer can contain a "visitor" class that acts on the ASTContext.
+        In the case of a "TranslationUnit" handler, a "RecursiveASTVisitor"
+        allows us to react to certain AST nodes as necessary, while iterating
+        over all of them.
+
+
+

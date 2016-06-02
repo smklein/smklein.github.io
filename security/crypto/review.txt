@@ -1,0 +1,284 @@
+~~~ OTP ~~~
+
+OTP is secure. Encrypt/Decrypt with XOR.
+    Don't use same pad twice. English has redundancy.
+ ✘  WEP 802.11 fucked this up:
+        Don't repeat pad (with like an incrementing #).
+        Careful using "related keys".
+    No integrity tho. "Malleable".
+
+Shannon's Perfect Secrecy:
+    For all messages m0, m1 (same length),
+        Distribution of E(k,m0) is indistinguishable from
+        Distribution of E(k,m1)
+    (Attacker can't tell shit about message encrypted, for ALL msgs)
+    "Perfect security" requires a key to be as large as (or larger) than
+    a message
+    "Good enough" security? "Computationally indistinguishable" instead
+    of mathematically indistinguishable. ~~ instead of ==
+
+~~~ STREAM CIPHERS AND PRGS ~~~
+
+"Stream Cipher" tries to bring (some) OTP security to larger messages.
+Use PRG to "blow up" small key into big key (which can then be used as
+OTP with message).
+    PRG expands seed into large value.
+    PRG must be "unpredictable".
+        Given first i-1 bits, bit "i" should be unpredictable.
+        Yao's theorem: An UNPREDICTABLE PRG is SECURE.
+
+    Examples of Stream Ciphers:
+     ✘   RC4. 128 bit seed. 2048 bits. Popular in HTTPS. WEP. Has some biases.
+     ✔   eStream. Adds Nonce. Lets us re-use key.
+     ✔   Salsa20: eStream + hardware support. V fast. "SSE2".
+
+    PRG (G: K --> {0,1} ^n) is secure if:
+        For a random input key "k", G(k) is "indistinguishable" from
+            a TRULY random string "r" which has the same length as G(k).
+        (This is hard! The range of G(k) is smaller than all possible
+         n bit long strings)
+
+        Must pass all efficient "statistical tests" A. Should have no ability
+        to distinguish PRG from random.
+            A(x) is 1 if "this is random". 0 if "not random".
+        Advantage = |Pr[A(G(k)=1)] - Pr[A(truly random)=1]|
+            (ex, A(x) is msb(x) = 1. msb(G(k)) = 1 for 2/3 of keys.
+                 Adv(A, G) = | 2/3 - 1/2 | = 1/6
+
+~~~ BLOCK CIPHER ~~~
+
+Maps "N bits" input to "N bits" output.
+
+1) Expand key k into key k1...kn.
+2) Encrypt block through multiple round functions R(k, m) with
+   each of the keys.
+3) Get as output a ciphertext which is also N bits (matching inputs).
+
+PRF: Key, input --> output. Not necessarily 1:1 (can have x1 --> y, x2 --> y)
+PRP: Key, input --> output, but output is invertible.
+
+    PRF security? PRF sample is indistinguishable from sample from ALL
+    functions from X (input) to Y (output).
+        Adversary will give multiple inputs (x). Will get back TRULY random
+        f(x) or PRF F(k,x). Can he tell the diff (EVEN FOR JUST ONE INPUT OF
+        HIS CHOICE)
+
+    "Feistel Network". Input split into half. Half used as
+    input to PRF, xored with other half. Swapped. Invertible.
+    "Luby-Rackoff" Theorem: THREE ROUNDS OF FEISTEL NETWORK
+    TURNS SECURE PRF into SECURE PRP. (recall, feistel is invertible).
+    "Luby-Rackoff": You can turn PRF into PRP (w/both secure).
+
+    "S boxes" used in key expansion. Turns 6 bit groups into 4 bit groups.
+    Obscures relationship between key and ciphertext.
+
+    "Ideal cipher" acts like collection of random invertible functions.
+    DES challenge. 4 msgs, 3 ciphertexts. Search keyspace. Figure out 4th msg.
+        DES is broken!
+
+    Block Cipher Examples (These are PRPs!):
+     ✘   DES. n = 64 bits. (56 bit keys). 16 round Feistel.
+     ✔   3DES. n = 64 bits. 48 rounds. (DES * 3, recall 16 rounds in DES).
+            Uses three keys. E(k1, D(k2, E(k3, m))).
+            168 bit key size. Very large! Sufficiently secure, but slow.
+     ✔   AES. n = 128 bits (16 bytes). 10 rounds.
+            Substitution Permutation Layer (not Feistel).
+            "1:1" substitution. Swap segments of input. XOR with k1.
+            Repeat subs/swap/xor with k2 ... k10.
+            EVERYTHING IS INVERTIBLE!
+            Precomputing tables makes AES faster.
+
+Block ciphers from PRGS
+    Can we build a 128-bit PRF from a PRG?
+    Yeah. Use PRG to double input.
+        k --> G --> G(k). Split into two halves. Each of size |k|.
+        Repeat in tree.
+        This makes a function (look at bottom of tree). "00"? Choose leftmost
+        bits of size |k|. "01"? Next |k| bits. Etc.... for arbitrary size
+        input, keep extending tree.
+
+        Except we don't really need to compute entire tree -- just the
+        DFS line through the tree.
+
+PRF Switching Lemma:
+    A secure PRP is also a secure PRF, if |X| is large enough.
+
+ECB Mode:
+    Message longer than block size? Use Block Cipher on each block
+    sized unit.
+    Same m block? same ciphertext block! NOT SEMANTICALLY SECURE.
+
+Deterministic Counter Mode:
+    For each block, compute F(k,0), F(k,1)...
+        Use as a pad, xor with each message block.
+        ONLY VALID ONCE (but works with long messages)
+
+~~~ MANY TIME KEY ~~~
+
+CBC with random IV  ✔/✘ (Ctr mode CBC is better)
+    Ciphertext: (xor "prev c" with msg, encrypt)
+        IV (in plain)
+        c[0] = E(k, IV   xor m[0])
+        c[1] = E(k, c[0] xor m[1])
+        c[2] = E(k, c[1] xor m[2])
+        ...
+    Decryption?
+        m[0] = D(k,c[0]) xor IV
+        m[1] = D(k,c[1]) xor c[0]
+        m[2] = D(k,c[2]) xor c[1]
+        ...
+    CBC stops being secure after 2^48 AES blocks (assuming AES is
+        actually used as the E/D PRP).
+
+    IV MUST BE RANDOM.
+
+Nonce Based CBC
+    IV replaced by "Nonce". Used with "xor" as E(k1, nonce).
+        REMEMBER TO ENCRYPT THE NONCE (before using it with xor) TO MAKE IT
+        UNPREDICTABLE.  Otherwise, degenerates to "non-random IV" case.
+        Reliance on new key, k1.
+    Can send "nonce", but also can use a predictable nonce (like
+    incrementing each time!)
+
+    CBC padding: Need "n" bytes of padding? use the byte "n" n times!
+        (don't need pad? Use dummy block)
+
+"Counter Mode" ✔ (better than CBC)
+    Use random IV.
+        c[0] = m[0] xor F(k, IV)
+        c[1] = m[1] xor F(k, IV + 1)
+        ...
+    COMPLETELY PARALLEL!
+    "nonce ctr-mode" -- IV Isn't random. IV is [ nonce || counter ]
+
+    No padding needed.
+    CBC requires PRP. CTR mode requires PRF (easier requirement)
+
+~~~ CPA SECURITY ~~~
+    ADVERSARY'S PERSPECTIVE: Using key more than once?
+CPA Security
+    Goal: Break semantic security
+        Adv can provide a pair of m0, m1 (can provide many of these pairs!)
+        (Challenger chooses either 0 or 1 for i, constant over ALL pairs)
+        Adv gets E(k, mi). Attacker must determine if i == 0 or i == 1.
+    Block Ciphers are INSECURE under CPA. They don't change their
+    value of E(k,m)! "Deterministic Encryption is insecure".
+
+CPA security for nonce-based encryption:
+    Adversary can choose plaintext AND nonce, but cannot re-use the nonce.
+    Basically same situation as normal security, but can the adversary
+    determine which message was encrypted with a "predictable" BUT NOT
+    REUSED nonce?
+
+~~~ MAC ~~~
+
+Can we provide integrity without secrecy?
+Signing algorithm:
+    tag <- S(k, m)
+    valid <- V(k, m, tag)
+
+SIGNING REQUIRES A KEY.
+
+Chosen Message Attack: Attacker gets q message/tag pairs.
+    For Attacker to win with "EXISTENTIAL FORGERY":
+        Produce NEW message/tag pair (using new message, tag, or both).
+
+SMALL MAC: Secure PRF is a Secure Mac.
+
+So how do we make a "big MAC"?
+    Convert "small PRF" into "big PRF"
+
+Examples:
+  ✔ ECBC_MAC:
+        F(k, m[0]) is XOR'd with m[1], input to F(k, .), XOR'd with m[2]...
+        ... At the end, plugged into "F(k1, .)" (new key!) to get tag
+✔/✘ NMAC (nested mac):
+        F(k, m[0]) is KEY for F(., m[1]), which is KEY for F(., m[2])...
+            Finally, append a "fixed pad", and feed that into
+            F(k1, .) to get the tag (new key again!)
+        Need to change AES key on every block... requires recomputing
+        key expansion. Slow.
+  ✔ CMAC:
+        Three keys. no final encryption step. Extra xors tho.
+        Also one extra key for a padding case (to make us have less padding)
+  ✔ PMAC:
+        Parallel Mac. Two keys. Padding similar to CMAC.
+            m[0] xor P(k,0) is input to F(k1, .)
+            m[1] xor P(k,1) is input to F(k1, .)
+            ...
+            Take all these outputs, xor them, feed this into F(k1,.).
+            Tag = final output
+        Easy to update MAC for new message.
+            Invert, xor w/old segment, xor w/new, Reencrypt
+
+Padding is an issue!
+    WHY? Suppose we pad m, making "m || 0".
+    The tag of "m || 0" and "m" will be the same!
+        --> Existential forgery achieved
+    PADDING MUST BE INVERTIBLE
+
+    Solution: Pad with "100...000", possibly adding dummy block.
+
+Carter-Wegman MAC:
+    Converts (FAST) One-time MAC into Many-time MAC.
+    Requires a random r <-- {0, 1}^n
+    CW((k1,k2), m) = (r, F(k1, r) XOR S(k2, m))
+                     Slow/short       Fast/Long
+
+Collision Resistance:
+    Collision is pair of messages (distinct) with same hash value.
+    Collision resistant if the advantage of finding a collision is
+        "negligible".
+
+Wanna make S,V (for MAC) for long messages from short ones?
+    HASH the message (to make it short), and MAC that.
+    Requires a collision resistant HASH.
+
+Generic Birthday Attack:
+    H: M --> {0, 1}^n is a hash function (|M| >> 2^n)
+    Choose 2^(n/2) messages in n
+    Compute hashes of messages.
+    Look for a collision. If not found, try again.
+
+    For n samples, independently distributed in a space of size B.
+    When n = 1.2 * B^(1/2) then Pr[collision] >= 1/2
+
+Example hash functions
+    ✘ SHA-1 is broke
+    ✔ SHA-256 (fine for now?)
+    ✔ SHA-512 (probs pretty dece)
+
+Merkle-Damgard Paradigm:
+    Turns SMALL hash into BIG hash.
+        If lil' hash is resistant, so is the big one.
+    Relies on compression function "h". Takes two inputs, compresses them.
+    h(IV, m[0]) is input to h(., m[1]). Tha'ts input to h(., m[2]).
+        ... m[n] is padded with "PB", which is 100...000 || msg length
+
+How do we build SMALL HASH?
+    Yeah, we can use a block cipher.
+    Davies-Meyer compression function:
+        "H" is a chaining variable. "m" is message block.
+        h(H,m) = E(m,H) xor H
+    We need that xor! If we didn't have it, then:
+        For h(H,m) = E(m,H), we can make a collision.
+        (Collision)  E(m',H') = E(m,H)
+                     H' = D(m', E(m,H))
+                     ^ If this H', m' pair is chosen, it collides...
+
+SHA-256:
+    Merkle-Damgard function (SMALL --> BIG)
+    Davies-Meyer compression (SMALL HASH)
+    Block cipher: SHACAL-2 (Used in SMALL HASH)
+
+HMAC:
+    MAC from SHA-256 Hash
+    S(k,m) = H(k xor opad, H(k xor ipad || m))
+        "opad", "ipad" are constants
+        (Uses two H functions; two M-D chains)
+
+~~~ AUTHENTICATED ENCRYPTION ~~~
+
+
+
+
