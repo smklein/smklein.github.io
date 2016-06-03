@@ -197,7 +197,7 @@ Let's recap "what points to what".
 - Directories point to inode #s.
   If inodes are moved, then the directory doesn't need to be re-written.
   It's going to use the imap!
-- ANY inode relocate? The imap must be updated.
+- ANY inode relocated? The imap must be updated.
 
 So, to summarize,
 If a data block moves, the corresponding inode must be udpated.
@@ -221,8 +221,8 @@ If it's the same as the block in the current segment, then the data block is
 live.
 
 If the imap --> inode --> block points to a DIFFERENT data block (or the offset
-doesn't fit in the file, because it was truncated), then the block is DEAD, and
-can be garbage collected.
+doesn't fit in the file, because it was truncated), then the block from the SS
+block is dead, and can be garbage collected.
 
 IMPORTANT: The DISK ADDRESS is being compared, NOT THE CONTENTS OF THE BLOCK,
 so it doesn't matter if the "new data" happens to be the same as an old version.

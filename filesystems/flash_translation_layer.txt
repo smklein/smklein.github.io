@@ -40,7 +40,7 @@ You can flip bits ON in an SSD, but not OFF (without an erasure).
     this just means that pages in a block are "write once" after an erasure, and
     they must be emptied via an "erase" to write again.)
 
-This means you can write to multiple (DISTINCE) "pages" in a "block" by issuing:
+This means you can write to multiple (DISTINCT) "pages" in a "block" by issuing:
   > WRITE WRITE WRITE WRITE WRITE
 However, as soon as you want to re-write (even just ONE) page, you MUST erase
 then entire block and re-write it.
@@ -87,9 +87,10 @@ No, there is one more major issue. Unfortunately, NAND flash has a tendency to
 wear out if it is erased in the same physical spot multiple times.
 
 As a solution, the same logical block addressing tricks can be used. Here,
-they're called "Wear Levelling", which is a technique that ensures:
-1) From the OS's perspective, the LBA of a page looks the same...
-2) From the flash's perspective, the PBA of a page is not re-used heavily.
+it's called "Wear Levelling", which is a technique that ensures:
+  1) From the OS's perspective, the LBA of a page looks the same (regardless of
+     whatever the FTL is doing behind the scenes).
+  2) From the flash's perspective, the PBA of a page is not re-used heavily.
 
 The goal of wear levelling is to distribute erasures and re-writes evenly across
 the SSD.
