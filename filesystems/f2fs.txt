@@ -1,0 +1,72 @@
+~~~ F2FS (Flash Friendly Filesystem)
+
+The F2FS is a filesystem with the primary goal of supporting flash storage
+devices. It achieves this goal using append-only logging, similar to other log
+based filesystems such as LFS -- I recommend reading that article for background
+before jumping into this one.
+
+However, even LFS was designed with hard disk drives in mind, not SSDs/other
+forms of NAND flash memory.
+
+~~~ WHAT PART OF LFS SUCKS FOR FLASH?
+
+The random write --> sequential write conversion is actually quite GOOD for
+flash.
+
+TODO(finish)
+
+
+~~~
+
+(Blocks): 4KB chunks in the main area. Either "data" or "node" (part of inode).
+Segment: Smallest unit which is read/written from SSD.
+         Multiple blocks in size, I think.
+Section: Collection of multiple segments. Smallest unit which is cleaned.
+Zone: Collection of sections.
+
+~~~
+
+
+
+Six Areas of F2FS:
+
+Superblock (SB)
+  > Hold partition information and default parameters of F2FS.
+    Only changed at format time, not changeable.
+Checkpoint (CP)
+  > File system status
+  > Bitmaps for valid NAT/SIT sets
+  > Orphan inode lists
+  > Summary entries of currently active segments.
+  > CP area contains two "checkpoint packs" -- one for the last stable version,
+    and one for the intermediate (or obsolete) version.
+Segment Information Table (SIT)
+  > Per-segment info, such as # of valid blocks and "isvalid" status for
+    ALL BLOCKS IN MAIN AREA. Used to answer the following question:
+    "Is this block valid? I better SIT down and think about it."
+Node Address Table (NAT)
+  > An imap. Holds location of all nodes in "Main area".
+    "I do NAT know where this inode is, but I want to know!"
+Segment Summary Area (SSA)
+  > Summary info, for block ownership. Identifies parent node blocks.
+    "SSAy, who owns this block?"
+Main Area
+  > Filled with blocks of either nodes (inodes/indices of data blocks) or data
+    (directories or file contents).
+
+
+~~~ HOW TO LOOK UP A FILE?
+
+"/dir/file"
+
+1) Obtain root inode. Find it in the NAT.
+2) In root inode, look for dir entry named "dir" (in data block). Obtain its
+   inode number.
+3) Get the location of "dir"'s inode in the NAT.
+4) Look at "dir"'s inode's data block...
+5) Identify the dir entry named "file". Repeat steps 3/4 for "file".
+   Boom. You have the file's data block.
+
+
+
+
