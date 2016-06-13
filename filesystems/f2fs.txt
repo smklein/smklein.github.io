@@ -50,6 +50,7 @@ Node Address Table (NAT)
 Segment Summary Area (SSA)
   > Summary info, for block ownership. Identifies parent node blocks.
     "SSAy, who owns this block?"
+    TODO: Who owns what exactly?
 Main Area
   > Filled with blocks of either nodes (inodes/indices of data blocks) or data
     (directories or file contents).
@@ -66,6 +67,250 @@ Main Area
 4) Look at "dir"'s inode's data block...
 5) Identify the dir entry named "file". Repeat steps 3/4 for "file".
    Boom. You have the file's data block.
+
+~~~~~~~~~~~~~~~ 2.2. FILE STRUCTURE
+
+~~~ SO F2FS DISTINGUISHES BETWEEN INODES AND NODES?
+
+Yeah. This is different from LFS, which only saw nodes as "inodes".
+
+F2FS sees nodes as either an:
+1) inode
+2) direct node
+3) indirect node
+
+~~~ INODES ARE METADATA ABOUT A FILE... WHAT ARE THE OTHER TWO NODES?
+
+Some background:
+
+Files can consist of either a small amount of data, a large amount of data, or
+something in between. Performance and design should not degrade significantly
+for any particularly sized file. To address the needs of both sizes, files
+generally consist of different types of pointers:
+
+1) Direct pointers
+2) Single-indirect pointers
+3) Double-indirect pointers
+4) Triple-indirect pointers
+
+Essentially, small files will only use "direct pointers" to point to data
+blocks. As the file gets larger and larger, more levels of indirection can be
+used.
+
+A "single-indirect pointer" points to a "DIRECT NODE", which is a block full of
+pointers to data blocks.
+
+A "double-indirect pointer" points to an "INDIRECT NODE", which is a block full
+of pointers to "direct nodes", which themselves hold pointers to data blocks.
+
+Triple-indirect pointers are the same, but they chain two indirect nodes
+together. You get the idea. More layers of abstraction; a larger file.
+
+~~~ DID LFS HAVE THIS INDIRECTION?
+
+Yeah, it did. Whenever data block was updated, all the direct/indirect nodes
+used for abstraction (up to and including the inode) needed to be updated
+recursively; whenever one was written, they all had to propagate the new
+addressing information.
+
+This problem is called the "wandering tree" problem. Spooky, I know.
+
+~~~ DOES F2FS TRY TO COMBAT THESE SPOOKY WANDERING TREES? SEEMS LIKE THIS WOULD
+    SUCK FOR LARGE FILES.
+
+Yeah. Remember how I said that "indirect nodes" pointed to "direct nodes"?
+
+~~~ YEAH?
+
+Yeah. Well, in LFS, they used physical addresses to do the pointing.
+
+In F2FS, EVERY NODE HAS AN ID, and can be looked up in the NAT.
+So in F2FS, indirect nodes hold node IDs of direct blocks. This forces
+redirection through the NAT, which stops the update from propagating up the
+internal file tree.
+
+~~~ THIS SOUNDS LIKE THE SAME IDEA LFS USED FOR DIRECTORIES; HOLDING FILE IDs
+    INSTEAD OF ADDRESSES.
+
+It is basically identical, just applied somewhere else.
+
+~~~ ANY OTHER F2FS INODE TRICKS?
+
+Yeah. F2FS noticed that most files are tiny (which is true for almost all systems).
+To improve I/O performance, inode blocks support "inline data", which actually
+places data in the inode (instad of direct pointers) when the file is smaller
+than 3,692 bytes.
+
+  (That actually seems kinda weird to me -- not the idea, it makes sense, but
+   rather, why is F2FS the only one doing this? It doesn't seem
+   flash-specific...)
+
+~~~~~~~~~~~~~~~ 2.3. DIRECTORY STRUCTURE
+
+~~~ WHAT DO DIRECTORIES LOOK LIKE IN F2FS?
+
+A directory consists of a large number of "dentries", as well as a multi-level
+hash table.
+
+A "dentry" is a part of a directory. It's more or less a regular data file, but
+with a particular format on the inside that the filesystem takes advantage of.
+
+It consists of
+1) A bitmap
+2) An array of slots
+3) An array of names
+
+Which can all be indexed into.
+
+If bitmap[i] == VALID, there exists a file at index "i".
+  slots[i] holds information about the file at index "i", such as
+    - The hash value of the file
+    - The inode number of the file
+    - The length of the file
+    - The type of the file
+
+~~~ SO HOW DOES A DIRECTORY LOOKUP A FILE NAME?
+
+TODO: Details on the multi-level hash table are sparse.
+      I'm not 100% sure how this lookup works.
+
+1) It hashes the filename
+2) It looks for that file in the multiple hash tables, starting with level 0.
+3) At each level, it looks in a bucket of dentry blocks, comparing (in order)
+    - bitmap
+    - hash value of file
+    - filename
+
+~~~~~~~~~~~~~~~ 2.4. Multi-head Logging
+
+Remember how LFS had ONE large log area?
+
+~~~ YEAH, IT WAS OPTIMIZED FOR ONE WRITE HEAD ON A HDD.
+
+Well, F2FS is not meant for HDDs. F2FS uses SIX (!!!) separate log areas, at the
+same time.
+
+F2FS has three pairs of logs -- each pair consists of a "node block" log and a
+"data block" log, for either "hot", "warm" or "cold" data, depending on how
+often the data is updated.
+
+TODO: A lot of this HOTTNESS seems speculative to me.
+
+~~~ WHEN ARE FILES CONSIDERED HOT HOT HOT?
+
+Direct node blocks are considered HOT. At least warm.
+  After all, they contain addresses, not node IDs. They're updated more often.
+Direct node blocks and data blocks for directories are considered HOT.
+
+~~~ WHEN ARE FILES CONSIDERED COLD?
+
+- Indirect node blocks. They're updated infrequently.
+- Data blocks moved by cleaning. They were valid long enough to be cleaned, we
+  expect they'll stay that way for a while.
+- Data block labelled "cold" by the user. Thank you based extended attributes.
+- Multimedia files. Check the file extension. Movies don't change that much.
+  - THIS SEEMS BOTH CLEVER AND HACKY.
+
+Summary
+
+TYPE    TEMP      OBJECTS
+Node    Hot       Direct node blocks for directories (different write patterns
+                                                      than regular files
+Node    Warm      Direct node blocks for regular files
+Node    Cold      Indirect node blocks (updated infrequently)
+Data    Hot       Directory entry blocks
+Data    Warm      Data blocks made by users
+Data    Cold      Data blocks moved by cleaning
+                  Cold data blocks specified by attributes
+                  Multimedia files
+
+Logs are placed in different zones to separate them in the FTL, avoiding
+misalignment due to a set-associate garbage collection algorithm.
+
+TODO(smklein): THIS SEEMS SUPER DEPENDENT ON THE UNDERLYING FTL.
+
+~~~~~~~~~~~~~~~ 2.5. Cleaning
+
+Cleaning is done in the unit of "sections".
+
+"Foreground" cleaning: Ah crap, we're out of space.
+"Background" cleaning: Done periodically by kernel thread.
+
+Cleaning takes place in three parts:
+1) VICTIM SELECTION
+   F2FS takes a different approach for foreground and background cleaning here.
+   FOREGROUND: F2FS uses a "Greedy Policy".
+      Select the section with the smallest number of valid blocks. Minimizes
+      migration cost, low user-visible latency.
+   BACKGROUND: F2FS uses a "Cost-Benefit policy".
+      Select the section based on both "utilization" and "age.
+      Age based on averaging segments with SIT info.
+      Provides an opportunity to separate hot and cold data.
+2) IDENTIFY AND MOVE VALID BLOCKS
+   F2FS uses the SIT (segment info table) to identify "hey, is this segment
+   valid?" for all segments in the section.
+
+   If it isn't valid, don't do anything to it.
+
+   If it IS a valid segment, we need to move it! And to update everyone that may
+   be pointing to it. The SSA (segment summary area) contains the parent node
+   block of the segment. If the parent still points to this segment, then it
+   needs to be migrated. Otherwise, it's stale.
+
+   Background cleaning has a similar story, but never actually issues I/Os to
+   migrate valid blocks. Instead, F2Fs loads the blocks into a page cache and
+   marks them as dirty. This effectively "lazily writes them later"; it's
+   flushed before the next checkpoint.
+3) BLOW IT AWAY (JK WAIT A BIT)
+   So now the valid blocks have been migrated, and a victim section is ready to
+   be marked as "free". It's known as a "pre-free" section in F2FS.
+   The section actually becomes free AFTER a checkpoint is made. This is because
+   a pre-free section may be reused in the event of a crash before the next
+   checkpoint.
+
+~~~~~~~~~~~~~~~ 2.6. Adaptive Logging
+
+~~~ WHERE DO LOG WRITES HAPPEN?
+
+We have two options:
+1) Normal logging. Strictly sequential writes in clean segments.
+   Good performance, as long as there is space. Less free space? Begins to
+   suffer in perf. A LOT.
+2) Threaded logging. Writes blocks to HOLES (invalidated, obsolete space) in
+   existing dirty segments. Requires no cleaning (immediately), but has worse
+   performance.
+
+F2FS approach? Do normal logging. Running out of free space? Switch to threaded
+logging. Tons of free space again? Switch back to normal logging. Based on
+threshold of "k clean sections" remaining.
+
+~~~~~~~~~~~~~~~ 2.7. Checkpointing and Recovery
+
+~~~ WHAT HAPPENS WHEN WE CHECKPOINT?
+
+1) Dirty node / Dentry blocks in page cache are flushed.
+2) Ordinary writes (create/unlink/mkdir) are suspended.
+3) FS metadata, NAT, SIT, and SSA are written to dedicated spots on disk.
+4) F2FS writes a "checkpoint pack" to the CP area.
+
+The "checkpoint pack" consists of:
+1) Header + Footer (version numbers included. Identifies most recent / valid
+   checkpoint.
+2) NAT / SIT bitmaps. Which NAT/SIT block are we using for this checkpoint?
+   F2FS uses two sets of NAT/SIT blocks. Writes to each one alternating during
+   checkpointing.
+3) NAT / SIT journals. Small number of recently modified NAT/SIT entries. This
+   avoids frequent NAT/SIT updates. Recall: journal is like "these are the
+   modifications we WILL make, but aren't making NOW, to avoid writing to
+   NAT/SIT."
+4) In-memory SSA blocks that WILL be flushed to SSA in the future.
+5) Orphan blocks, so they can be recovered.
+
+It is written to a dedicated CHECKPOINT AREA.
+
+F2FS holds two checkpoint packs.
+
+
 
 
 
