@@ -1,0 +1,25 @@
+~~~ WHAT DOES THE MOUNT COMMAND DO?
+
+It lets a user 'add' a filesystem to their current directory structure.
+
+If you're on a Unix system, you already can access your files from a tree
+starting at '/'. The 'mount' command can simply add additional filesystems to
+this tree.
+
+The general structure of 'mount' is something like this:
+
+$ mount [DEVICE] [LOCATION]
+For example,
+$ mount /dev/hda2 /media/PHOTOS
+
+Mount is also capable of reading your "/etc/fstab" file. Try looking at your
+own fstab file now!
+
+$ cat /etc/fstab
+
+This file is a configuration file, listing all filesystems, and where they are
+meant to be mounted. Think of this as a 'default settings' file for filesystem
+mounting.
+
+
+
