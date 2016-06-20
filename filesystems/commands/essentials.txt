@@ -2,15 +2,24 @@ Here are a list of "good to know" commands for making / manipulating a
 filesystem. As always, proceed with caution: some of these commands can be
 dangerous if not used properly.
 
+Unsure about your filesystem? Try playing around with commands to "list" what
+storage you have accessible, and where it is mounted.
+
+~~~ OBSERVING FILESYSTEMS ~~~
+
+df: "how much of the DISK is FREE? (df) What filesystems am I using?"
+  EX: View current usage of MOUNTED FILESYSTEMS.
+    $ df -hT
 
 ~~~ ACCESSING HARDWARE / PARTITIONS ~~~
 
 lshw: "list hardware"
   EX: "What disks do I currently have connected to my system?"
-    $ lshw -C disk
+    $ sudo lshw -C disk
 
 fdisk: "Manipulate disk partition tables".
   WARNING: THIS ONE IS DANGEROUS.
+  Fdisk shows you EVERYTHING -- even devices that aren't mounted.
   EX: "Show me all partition tables". Your hard drive will probably be listed
     as one of "/dev/sda", "/dev/sdb", or "/dev/sdc".
     $ sudo fdisk -l
@@ -19,29 +28,36 @@ fdisk: "Manipulate disk partition tables".
     $ Command (m for help): p     # View the partition table
     $ Command (m for help): d     # Delete a partition
     $ Command (m for help): n     # Make a new partition
+    $ Command (m for help): t     # Change the type of a partition
     $ Command (m for help): w     # Write changes you've made to disk
     $ Command (m for help): q     # Quit without saving changes
 
+parted: "Partition manipulation program"
+  EX: Manipulate partitions (restore partitions, resize partitions, etc)
+    $ sudo parted /dev/sdc
 
 ~~~ MAKING FILESYSTEMS ~~~
 
-
-df: "How much disk space am I using?"
-  EX: View current usage:
-    $ df -h
-
 dd: "Make a new file".
   USAGE: Making new filesystem images / moving exisitng filesystem images.
-  EX: Make a 10MB filesystem image (full of zeroes) by writing 10 chunks of 1MB
-  each.
+  EX: Make a 10MB file (full of zeroes) by writing 10 chunks of 1MB each.
     $ dd if=/dev/zero of=/tmp/litefs bs=1M count=10
+  EX: Backup the a disk into an image file. DANGEROUS.
+    $ dd if=/dev/sdc1 of=/tmp/sdc1.img
 
 mkfs: "Make a new filesystem"
   WARNING: "mkfs" by itself is deprecated. Typically, you'll use a fs-specific
     implementation, like "mkfs.ext4", or "mkfs.fat".
   EX:
+    $ sudo mkfs.fat /dev/sdc2
 
+~~~ PLACING FILESYSTEMS ~~~
 
-mount:
+mount: "Make a filesystem accessible to me"
+  EX: Mount a device (USB? Hard drive? SSD?) on a dir named "storage"
+    $ sudo mount /dev/sdc2 storage
 
+umount: "Unmount. Get it out of my ACTIVE filesystem"
+  EX: Removing the device we mounted, maybe so we can format the filesystem.
+    $ sudo umount storage
 
