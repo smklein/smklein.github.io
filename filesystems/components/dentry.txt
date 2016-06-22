@@ -1,0 +1,29 @@
+~~~ WHAT'S A DENTRY?
+
+A 'dentry', or directory entry, is a "specific component in path".
+Dentries are created on the fly by VFS, and they live in RAM. Since they exist
+for performance reasons, they are not saved to disk.
+
+~~~ CAN I SEE AN EXAMPLE?
+
+Given a file, "/bin/vi", there are three dentry objects:
+  "/"  : Root directory
+  "bin": Another directory
+  "vi" : A regular object
+
+Dentries can be in one of three states, based on the "usage count":
+
+used: The dentry corresponds with a valid inode -- the number of users of the
+      inode is positive.
+unused: The "d_count" is zero - the dentry is currently unused by VFS, but
+        could potentially be used again. This dentry is prime for caching.
+negative, or "invalid": The dentry is not associated with a valid inode, since
+                        the inode was deleted or the pathname was never correct.
+
+~~~ SO DENTRIES ARE CACHED?
+
+Dentries are the result of the VFS layer resolving elements in a pathname. Once
+computed, they can be re-used, if they are saved in a dentry cache, or "dcache".
+
+
+
