@@ -1,0 +1,101 @@
+Notes from:
+http://arstechnica.com/apple/2016/06/a-zfs-developers-analysis-of-the-good-and-bad-in-apples-new-apfs-file-system/
+
+
+~~~ WHAT IS APFS?
+
+A new FS arriving on macOS, iOS, etc in the next few years.
+It's optimized for flash storage, has features similar to BTRFS and ZFS,
+and has had a huge testing effort.
+
+~~~ WHAT DID APPLE USE BEFORE?
+
+HFS (made in 1985), and HFS+ (1998). These are old filesystems missing
+important features like:
+- Nanosecond timestamps
+- Checksums
+- Snapshots
+- Sparse file support
+
+APFS introduces all of these features.
+
+However, it is still missing compression -- though it may be added before public
+launch.
+
+~~~ DOES APFS ENCRYPT DATA?
+
+It supports multiple options for encryption.
+- No encryption
+- Single-key encryption for (metadata + user data)
+- Multi-key encrytpion for (metadata) / (files) / (sections of files; "extents")
+
+This use of encrytpion also allows a quick erase option, called "effaceable",
+which presumeably deletes one or more secret keys to make data inaccessible,
+rather than actually physically wiping data.
+
+~~~ DOES APFS SUPPORT BACKUPS?
+
+Snapshots let you freeze the filesystem at a particular moment in time,
+so that it may be revisited. Conceptually, this can be thought of as "tracking
+changes" since a certain point in time.
+
+DTrace reveals that APFS includes a system call known as "fs_snapshot", but the
+details of the implementation are not clear.
+
+~~~ WHAT DOES APFS DO TO SAVE SPACE?
+
+APFS has constant time cloning of files and directories.
+In classic COW (Copy on Write) fashion, metadata is copied, and on-disk
+data is shared until one is updated.
+
+The use cases here seem slightly limited -- yes, copying files does happen, but
+most files which would benefit from "whole file deduplication" are overwritten
+entirely when updated. This is speculation on my part; actual user usage would
+need to be investigated.
+
+~~~ IS APFS TAILORED FOR FLASH?
+
+Yes. APFS supposedly writes "in patterns... easily handled by NAND".
+(I assume you know about flash storage / FTLs at this point)
+Additionally, APFS includes TRIM support.
+
+Lastly, APFS includes I/O QoS to prioritize foreground accesses over background
+accesses.
+
+~~~ WHAT DOES APFS DO FOR DATA INTEGRITY?
+
+Apple claims that data redundancy happens at layers below the filesystem --
+"hardware RAID controllers, SANs, etc".
+
+As mentioned earlier, APFS's mechanism to save space on copy eliminates the
+"common" user's technique of "copy the file to make redundant data".
+
+~~~ HOW DOES APFS MAINTAIN CONSISTENCY ACROSS CRASHES?
+
+Old old old technique for crash consistency:
+  "Do whatever, repair during boot with fsck"
+More modern:
+  "Be in an always-consistent (or limited inconsistent) format"
+  "Atomically transition to new states of consistency"
+APFS:
+  Supposedly includes "novel COW metadata scheme", which allocates new data
+  and releases old versions, rather than writing data in place.
+  This seems like a similar effect to the "updated versions" provided
+  by log-structured filesystems.
+
+
+~~~ DOES APFS INCLUDE CHECKSUMS FOR DATA ERRORS?
+
+Nope.
+
+Many people argue for checksumming metadata (it's smaller, so checksums consume
+less storage) and is "more important".
+
+APFS relies on ECC instead.
+
+~~~ SUMMARY?
+
+Most important features:
+- Flash support.
+- Encryption as first class citizen
+- Snapshots
