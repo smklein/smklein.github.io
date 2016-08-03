@@ -97,7 +97,7 @@ Remember what I said at the beginning?
 *** /FLASHBACK ***
 
 When you're checking a line, you can use "{{REGEX}}" as part of the
-CHECK. Variables can even be safed this way!
+CHECK. Variables can even be saved this way!
 
     ; CHECK: test5:
     ; CHECK:    notw     [[REGISTER:%[a-z]+]]
